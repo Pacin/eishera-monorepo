@@ -1,0 +1,3 @@
+# SQL migrations live here (node-pg-migrate, --migration-file-language sql).
+# Phase 0 ships no migrations — tables start in Phase 1.
+# Create one with: pnpm migrate:create <name>

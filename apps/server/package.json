@@ -1,0 +1,42 @@
+{
+  "name": "@eishera/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "dotenv -e ../../.env -- tsx watch src/index.ts",
+    "start": "dotenv -e ../../.env -- node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "migrate": "dotenv -e ../../.env -- node-pg-migrate",
+    "migrate:up": "dotenv -e ../../.env -- node-pg-migrate up",
+    "migrate:down": "dotenv -e ../../.env -- node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create --migration-file-language sql",
+    "seed": "dotenv -e ../../.env -- tsx src/seed/run.ts",
+    "config:demo": "dotenv -e ../../.env -- tsx src/scripts/config-demo.ts",
+    "tick:demo": "dotenv -e ../../.env -- tsx src/scripts/tick-demo.ts",
+    "smoke": "dotenv -e ../../.env -- tsx src/scripts/phase2-smoke.ts"
+  },
+  "dependencies": {
+    "@eishera/shared": "workspace:*",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/csrf-protection": "^7.1.0",
+    "@fastify/jwt": "^9.0.3",
+    "@fastify/rate-limit": "^10.2.2",
+    "@fastify/websocket": "^11.0.2",
+    "bcryptjs": "^2.4.3",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.10.7",
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.5.13",
+    "dotenv-cli": "^8.0.0",
+    "node-pg-migrate": "^7.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "ws": "^8.18.0"
+  }
+}

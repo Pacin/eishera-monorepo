@@ -1,0 +1,37 @@
+{
+  "name": "eishera",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistent browser-based game (PBBG) — server-authoritative, Postgres as single source of truth.",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev:server": "pnpm --filter @eishera/server dev",
+    "dev:web": "pnpm --filter @eishera/web dev",
+    "migrate": "pnpm --filter @eishera/server migrate",
+    "migrate:up": "pnpm --filter @eishera/server migrate:up",
+    "migrate:down": "pnpm --filter @eishera/server migrate:down"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0"
+  }
+}

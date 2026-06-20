@@ -1,0 +1,42 @@
+# Local orchestration: Postgres + the server, networked together.
+#
+#   docker compose up --build         # start db + server
+#   docker compose up -d db           # start ONLY the db (e.g. to run `pnpm dev:server` on host)
+#   docker compose down               # stop; add -v to also drop the data volume
+#
+# The db is published on host port 5433 to avoid colliding with a local
+# Postgres on 5432. Inside the compose network the server reaches it at db:5432.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: eishera
+      POSTGRES_PASSWORD: eishera
+      POSTGRES_DB: eishera
+    ports:
+      - '5433:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U eishera -d eishera']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://eishera:eishera@db:5432/eishera
+      PORT: '4000'
+      JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
+    ports:
+      - '4000:4000'
+
+volumes:
+  pgdata:

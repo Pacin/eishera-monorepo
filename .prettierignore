@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+pnpm-lock.yaml
+
+# Binding design docs — kept verbatim, not reformatted
+SPEC.md
+SEED.md
+
+# Tool-managed / local
+.claude/
