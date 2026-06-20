@@ -13,6 +13,7 @@ import { getConfig } from '../config/store.js';
 import { liveClockStep } from './clock.js';
 import { processTransform } from '../actions/transform.js';
 import { processCombat } from '../combat/handler.js';
+import { completeUpgradeJobs } from '../housing/service.js';
 import { pushToPlayer } from '../ws/registry.js';
 import type { BattleResult } from '@eishera/shared';
 
@@ -27,6 +28,7 @@ export interface TickResult {
   uptimeSeconds: number;
   outage: boolean;
   activeCount: number;
+  housingCompleted: number;
   battles: { playerId: number; result: BattleResult }[];
 }
 
@@ -101,7 +103,7 @@ export async function runTick(): Promise<TickResult> {
       const playerId = Number(r.id);
       if (r.active_recipe_id !== null) {
         const recipe = snapshot.recipes.get(r.active_recipe_id);
-        if (recipe) await processTransform(client, playerId, recipe, snapshot);
+        if (recipe) await processTransform(client, playerId, recipe, snapshot, newUptime);
       } else if (r.active_monster_id !== null) {
         const monster = snapshot.monsters.get(r.active_monster_id);
         if (monster) {
@@ -112,7 +114,10 @@ export async function runTick(): Promise<TickResult> {
     }
     const activeCount = active.rows.length;
 
-    // 3. WORLD BOSS — Phase 8.   4. HOUSING COMPLETION — Phase 6.
+    // 3. WORLD BOSS — Phase 8.
+    // 4. HOUSING COMPLETION: apply any upgrade jobs whose live-clock timer is due.
+    //    Measured against uptime_seconds, so downtime freezes them (§5, §12.3).
+    const housingCompleted = await completeUpgradeJobs(client, newUptime);
 
     // 5. Advance tick_number + live clock. last_tick_at = the now() we just read.
     await client.query(
@@ -120,7 +125,14 @@ export async function runTick(): Promise<TickResult> {
       [newTick, newUptime, row.now],
     );
 
-    return { tickNumber: newTick, uptimeSeconds: newUptime, outage, activeCount, battles };
+    return {
+      tickNumber: newTick,
+      uptimeSeconds: newUptime,
+      outage,
+      activeCount,
+      housingCompleted,
+      battles,
+    };
   });
 }
 
@@ -148,6 +160,7 @@ async function tickOnce(): Promise<void> {
     console.log(
       `[tick] #${r.tickNumber} uptime=${r.uptimeSeconds}s active=${r.activeCount}` +
         (r.battles.length > 0 ? ` battles=${r.battles.length}` : '') +
+        (r.housingCompleted > 0 ? ` housing=${r.housingCompleted}` : '') +
         (r.outage ? ' (outage — clock frozen)' : ''),
     );
   } catch (err) {

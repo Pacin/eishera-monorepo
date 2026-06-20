@@ -159,6 +159,36 @@ export interface LootDrop {
   qty: number;
 }
 
+// ── Housing DTOs (SPEC §12) ──────────────────────────────────────────────────
+
+export interface UpgradeCost {
+  gold: number;
+  resources: Record<string, number>;
+  duration: number;
+}
+
+export interface HousingFeatureState {
+  code: string;
+  bonus_type: string;
+  level: number;
+  max_level: number;
+  /** Cost to go to the next level, or null if at max. */
+  next_cost: UpgradeCost | null;
+}
+
+export interface ActiveUpgrade {
+  feature: string;
+  target_level: number;
+  start_live: number;
+  completes_live: number;
+  remaining_seconds: number;
+}
+
+export interface HousingView {
+  features: HousingFeatureState[];
+  active: ActiveUpgrade | null;
+}
+
 /** Per-action battle summary (SPEC §7.2). The round-by-round log is NOT persisted;
  *  this is what the client renders and receives over the websocket. */
 export interface BattleResult {

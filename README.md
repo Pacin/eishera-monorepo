@@ -2,16 +2,15 @@
 
 A persistent browser-based game (PBBG) — server-authoritative, with **PostgreSQL as the single source of truth**. Built in ordered phases per [`SPEC.md`](./SPEC.md); starting content and balance live in [`SEED.md`](./SEED.md).
 
-> **Status: Phase 5 (combat + base stats + equipment + active effects).** The tick
-> now also resolves **combat**: each battling player fights their selected monster
-> as a per-action multi-round duel (fight-HP from VIT, hit/crit/dodge/mitigation
-> from effective stats via `combat_coeffs`), with a `BattleResult` pushed over
-> Socket.IO. Winning grants combat XP (→ base-stat points per level), gold, and
-> loot (equippable loot is a LUCK-nudged `item_instance`); losing grants nothing.
-> **Equipment** (`/equipment/*`) and **potions** (`/actions/consume` →
-> `player_active_effects`) feed effective stats: `(base + equipment) × (1 +
-combat_all%)`. Transform actions (Phase 4) still run. Builds on Phase 3's atomic
-> tick + crash-resume.
+> **Status: Phase 6 (housing).** Players upgrade house features (`/housing/*`) —
+> an **instant resource spend** (not a tick action) that starts a job whose timer
+> runs on the **live clock**, so it **freezes on downtime**. Completion happens in
+> the tick (and lazily on view); **one upgrade at a time** is guaranteed by a DB
+> partial unique index; cancelling refunds `(1 − cancel_penalty)` of the
+> **`paid_snapshot`** (immune to live cost changes). Housing bonuses now feed the
+> formula layer — gather/food yield, rare-drop, craft-quality, and combat stats —
+> alongside equipment and potions. Combat (Phase 5) and transform (Phase 4) still
+> run. Builds on Phase 3's atomic tick + crash-resume.
 
 ### HTTP / Realtime surface
 
@@ -31,6 +30,9 @@ combat_all%)`. Transform actions (Phase 4) still run. Builds on Phase 3's atomic
 | POST      | `/equipment/equip`   | access cookie + CSRF  | equip an owned instance (`{ instanceId }`)                |
 | POST      | `/equipment/unequip` | access cookie + CSRF  | clear a slot (`{ slot }`)                                 |
 | GET       | `/equipment`         | access cookie         | equipped items + current effective combat stats           |
+| POST      | `/housing/upgrade`   | access cookie + CSRF  | start a feature upgrade (`{ featureId }`)                 |
+| POST      | `/housing/cancel`    | access cookie + CSRF  | cancel the active upgrade → partial refund                |
+| GET       | `/housing`           | access cookie         | features, levels, next cost, active job (lazy-completes)  |
 | Socket.IO | (connection)         | access cookie         | hello + ping/pong; receives `battle` results              |
 
 Auth tokens are delivered as **httpOnly cookies** (never in the response body or
@@ -153,6 +155,19 @@ Proves a battle returns rounds + damage dealt/taken; **equipping a higher-rolled
 sword measurably raises damage dealt** (averaged over many duels); a potion raises
 effective stats (`combat_all`); winning grants XP + gold (losing grants nothing);
 and a combat level-up grants base-stat points per `stat_per_level`.
+
+### Verify housing (Phase 6 acceptance)
+
+```bash
+pnpm --filter @eishera/server phase6:demo
+```
+
+Proves **two concurrent upgrades can't start** (service pre-check + DB unique
+index), **downtime freezes the timer** (an outage tick advances the live clock by
+only one interval, so a job past its wall-clock deadline still doesn't complete
+until the live clock reaches it), and **cancel refunds `(1 − cancel_penalty)` of
+the `paid_snapshot`** even after the cost config changes live — plus that housing
+bonuses feed yield / rare-drop / craft-quality / combat stats.
 
 ## Database migrations
 
@@ -327,3 +342,30 @@ Docker, the server container applies pending migrations on startup
 - **LUCK nudges loot rarity, not loot quantity** — equippable drops roll rarity
   with `rarity_luck_shift × effective LUCK`; stackable loot drops at its flat
   chance, unaffected by LUCK.
+
+## Key decisions (Phase 6)
+
+- **Upgrade start is atomic + instant** (not a tick action): check max/funds →
+  deduct gold + resources → store `paid_snapshot` → insert the job, all in one
+  transaction. If the job insert loses the race for the single slot, the whole
+  thing rolls back (no partial charge).
+- **One upgrade at a time = DB guarantee.** A graceful service pre-check returns
+  `upgrade_in_progress`, but the real backstop is the `uniq_active_upgrade` partial
+  unique index — a concurrent second insert fails and is mapped to the same error.
+- **Timers on the live clock, so they freeze.** Jobs store `completes_live` on the
+  `uptime_seconds` scale; the tick completes any due job (`completes_live <= uptime`),
+  and `GET /housing` lazily completes the player's due jobs so the UI shows "done"
+  immediately. Downtime doesn't fast-forward — the live clock proved frozen in §5.
+- **Cancel refunds from `paid_snapshot`, not current config.** The refund is
+  `floor(snapshot × (1 − cancel_penalty))`, so a live cost change between start and
+  cancel can't corrupt it (verified by mutating cost config mid-upgrade).
+- **First level is free + instant** with the seed curves (`cost = cost_base·0^growth = 0`
+  at level 0). It's pure config — bump `cost_base`/curves or seed starting levels if
+  you want the first tier to cost. Flagged, not hidden.
+- **Bonus integration is unified.** `computeProductionModifiers` aggregates
+  gather/food/rare/craft bonuses from equipment (tool) + active effects + housing;
+  `computeEffectiveStats` adds housing `combat_all`. **craft_quality is
+  multiplicative** (`level × (1 + workshop + effects)`) so the workshop meaningfully
+  shifts crafted-gear rarity; **`food_yield` applies to food output specifically**,
+  `gather_yield` to all gathering. These are the spec's under-pinned points, resolved
+  and documented.

@@ -40,6 +40,7 @@ import { selectRecipe, selectMonster, clearActivity, refreshActions } from '../a
 import { equipInstance, unequipSlot, getEquipment } from '../equipment/service.js';
 import { effectiveStatsForPlayer } from '../combat/stats.js';
 import { consumePotion } from '../effects/service.js';
+import { startUpgrade, cancelUpgrade, getHousing } from '../housing/service.js';
 import type { AuthResponse, AuthTokenPayload } from '@eishera/shared';
 
 const credentialsSchema = {
@@ -323,6 +324,46 @@ export async function buildServer(): Promise<FastifyInstance> {
       effectiveStatsForPlayer(request.user.playerId, cfg),
     ]);
     return { equipped, stats };
+  });
+
+  // Housing: start / cancel an upgrade, view state. CSRF + auth on mutations.
+  app.post(
+    '/housing/upgrade',
+    {
+      onRequest: app.csrfProtection,
+      preHandler: [app.authenticate],
+      schema: {
+        body: {
+          type: 'object',
+          required: ['featureId'],
+          additionalProperties: false,
+          properties: { featureId: { type: 'integer' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { featureId } = request.body as { featureId: number };
+      const result = await startUpgrade(request.user.playerId, featureId, getConfig());
+      if ('error' in result) {
+        const code = result.error === 'unknown_feature' ? 404 : 400;
+        return reply.code(code).send(result);
+      }
+      return getHousing(request.user.playerId, getConfig());
+    },
+  );
+
+  app.post(
+    '/housing/cancel',
+    { onRequest: app.csrfProtection, preHandler: [app.authenticate] },
+    async (request, reply) => {
+      const result = await cancelUpgrade(request.user.playerId, getConfig());
+      if ('error' in result) return reply.code(400).send(result);
+      return result;
+    },
+  );
+
+  app.get('/housing', { preHandler: [app.authenticate] }, async (request) => {
+    return getHousing(request.user.playerId, getConfig());
   });
 
   // ── Socket.IO realtime ──────────────────────────────────────────────────────

@@ -17,6 +17,7 @@
     "tick:demo": "dotenv -e ../../.env -- tsx src/scripts/tick-demo.ts",
     "phase4:demo": "dotenv -e ../../.env -- tsx src/scripts/phase4-demo.ts",
     "phase5:demo": "dotenv -e ../../.env -- tsx src/scripts/phase5-demo.ts",
+    "phase6:demo": "dotenv -e ../../.env -- tsx src/scripts/phase6-demo.ts",
     "smoke": "dotenv -e ../../.env -- tsx src/scripts/phase2-smoke.ts",
     "sio:check": "dotenv -e ../../.env -- tsx src/scripts/sio-battle-check.ts"
   },

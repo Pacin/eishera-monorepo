@@ -5,6 +5,7 @@
 // would add into the flat term; the seed only ships combat_all.
 
 import type { PoolClient } from 'pg';
+import { housingBonus } from '@eishera/shared';
 import { pool } from '../db/pool.js';
 import type { ConfigSnapshot } from '../config/snapshot.js';
 
@@ -64,6 +65,18 @@ export async function computeEffectiveStats(
   let combatAll = 0;
   for (const row of efRes.rows as { effect_type: string; magnitude: string }[]) {
     if (row.effect_type === 'combat_all') combatAll += Number(row.magnitude);
+  }
+
+  // Housing: training_hall (combat_all) adds to the same multiplier.
+  const hsRes = await client.query(
+    'SELECT feature_id, level FROM player_housing WHERE player_id = $1 AND level > 0',
+    [playerId],
+  );
+  for (const row of hsRes.rows as { feature_id: number; level: number }[]) {
+    const feature = cfg.housingFeatures.get(row.feature_id);
+    if (feature?.bonus_type === 'combat_all') {
+      combatAll += housingBonus(feature.bonus_base, feature.bonus_growth, row.level);
+    }
   }
 
   const mult = 1 + combatAll;

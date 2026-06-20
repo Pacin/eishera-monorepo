@@ -15,6 +15,7 @@ import { yieldMult, pRare, gainXp } from '@eishera/shared';
 import type { Recipe } from '@eishera/shared';
 import type { ConfigSnapshot } from '../config/snapshot.js';
 import { rollRarity, rollStats, scaleQty } from './rolls.js';
+import { computeProductionModifiers } from './modifiers.js';
 
 export type TransformResult = 'processed' | 'stalled';
 
@@ -25,6 +26,7 @@ export async function processTransform(
   playerId: number,
   recipe: Recipe,
   cfg: ConfigSnapshot,
+  uptimeSeconds: number,
 ): Promise<TransformResult> {
   const activity = cfg.activities.get(recipe.activity_id);
   if (!activity) return 'stalled';
@@ -65,6 +67,11 @@ export async function processTransform(
     }
   }
 
+  // Production modifiers from equipment + active effects + housing (SPEC §8).
+  const mods = await computeProductionModifiers(client, playerId, uptimeSeconds, cfg);
+  // Effective craft_quality = skill level scaled by workshop/effect bonuses.
+  const craftQuality = level * (1 + mods.craftQuality);
+
   // Outputs.
   const g = cfg.gameConfig;
   for (const out of recipe.outputs) {
@@ -75,19 +82,21 @@ export async function processTransform(
     let qty: number;
     if (chance >= 1) {
       // Guaranteed base yield. Equippable pieces are unique (no qty scaling);
-      // stackables scale with level via yieldMult.
-      qty = item.equip_slot ? out.qty : scaleQty(out.qty, yieldMult(level, g.yield_slope));
+      // stackables scale with level (yieldMult) and gather bonuses. food_yield
+      // applies on top for food output.
+      const gather = 1 + mods.gatherYield + (item.code === 'food' ? mods.foodYield : 0);
+      qty = item.equip_slot ? out.qty : scaleQty(out.qty, yieldMult(level, g.yield_slope) * gather);
     } else {
-      // Rare/secondary output: listed chance boosted by pRare (housing/effects = 0 in Phase 4).
-      const eff = Math.min(1, chance + pRare(level, g.rare));
+      // Rare/secondary output: listed chance boosted by pRare + rare_drop bonuses.
+      const eff = Math.min(1, chance + pRare(level, g.rare) + mods.rareDrop);
       qty = Math.random() < eff ? out.qty : 0;
     }
     if (qty <= 0) continue;
 
     if (item.equip_slot) {
-      // craft_quality = this skill's level (Phase 4: no workshop/effect bonus yet).
+      // craft_quality (skill level + workshop housing + effects) re-weights rarity.
       for (let k = 0; k < qty; k++) {
-        const rarity = rollRarity([...cfg.rarities.values()], g.rarity_quality_shift, level);
+        const rarity = rollRarity([...cfg.rarities.values()], g.rarity_quality_shift, craftQuality);
         const rolls = rollStats(item.base_stats ?? {}, rarity);
         await client.query(
           'INSERT INTO item_instances (item_id, owner_id, rarity, rolls) VALUES ($1, $2, $3, $4::jsonb)',
