@@ -34,6 +34,8 @@ import {
   clearAuthCookies,
 } from '../auth/cookies.js';
 import { addConnection, removeConnection, connectionCount, type WsLike } from '../ws/registry.js';
+import { getConfig } from '../config/store.js';
+import { selectRecipe, clearActivity, refreshActions } from '../actions/service.js';
 import type { AuthResponse, AuthTokenPayload } from '@eishera/shared';
 
 const credentialsSchema = {
@@ -180,6 +182,44 @@ export async function buildServer(): Promise<FastifyInstance> {
     if (!player) return reply.code(404).send({ error: 'not_found' });
     return player;
   });
+
+  // Select the current transform activity (a recipe). CSRF + auth.
+  app.post(
+    '/actions/select',
+    {
+      onRequest: app.csrfProtection,
+      preHandler: [app.authenticate],
+      schema: {
+        body: {
+          type: 'object',
+          required: ['recipeId'],
+          additionalProperties: false,
+          properties: { recipeId: { type: ['integer', 'null'] } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { recipeId } = request.body as { recipeId: number | null };
+      if (recipeId === null) {
+        await clearActivity(request.user.playerId);
+      } else if (getConfig().recipes.has(recipeId)) {
+        await selectRecipe(request.user.playerId, recipeId);
+      } else {
+        return reply.code(400).send({ error: 'unknown_recipe' });
+      }
+      return getPlayerSummary(request.user.playerId);
+    },
+  );
+
+  // Refill the action bar to max_actions. CSRF + auth.
+  app.post(
+    '/actions/refresh',
+    { onRequest: app.csrfProtection, preHandler: [app.authenticate] },
+    async (request) => {
+      await refreshActions(request.user.playerId);
+      return getPlayerSummary(request.user.playerId);
+    },
+  );
 
   // Websocket: authenticate from the access cookie at handshake (browsers send
   // it automatically same-origin). Register the socket, ack with hello, pong on

@@ -37,7 +37,7 @@ async function main(): Promise<void> {
   );
   startTickLoop();
   console.log(
-    `[eishera] ready — Phase 3 (tick core). Heartbeat every ${cfg.gameConfig.tick_seconds}s.`,
+    `[eishera] ready — Phase 4 (transform actions). Heartbeat every ${cfg.gameConfig.tick_seconds}s.`,
   );
 
   const shutdown = async (signal: string): Promise<void> => {

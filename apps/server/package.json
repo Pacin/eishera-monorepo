@@ -15,6 +15,7 @@
     "seed": "dotenv -e ../../.env -- tsx src/seed/run.ts",
     "config:demo": "dotenv -e ../../.env -- tsx src/scripts/config-demo.ts",
     "tick:demo": "dotenv -e ../../.env -- tsx src/scripts/tick-demo.ts",
+    "phase4:demo": "dotenv -e ../../.env -- tsx src/scripts/phase4-demo.ts",
     "smoke": "dotenv -e ../../.env -- tsx src/scripts/phase2-smoke.ts"
   },
   "dependencies": {

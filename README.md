@@ -2,26 +2,30 @@
 
 A persistent browser-based game (PBBG) — server-authoritative, with **PostgreSQL as the single source of truth**. Built in ordered phases per [`SPEC.md`](./SPEC.md); starting content and balance live in [`SEED.md`](./SEED.md).
 
-> **Status: Phase 3 (tick core).** A single heartbeat advances the world one
-> tick at a time, each tick a single atomic Postgres transaction (`world_state`
-> locked `FOR UPDATE`, `tick_number++`, live clock per SPEC §5). On crash the
-> world resumes from the last committed tick — at most the in-flight tick is lost
-> — and downtime **freezes** the live clock (no wall-clock fast-forward). The
-> active-set / boss / housing tick steps are present as structure but carry no
-> game logic yet (Phases 4–6). Builds on Phase 2's hardened cookie auth.
+> **Status: Phase 4 (transform actions + formula layer).** The tick now runs real
+> gameplay: each active player's selected **transform** recipe (mine/quarry/hunt/
+> craft/brew) is processed once per tick — inputs consumed, outputs rolled
+> (guaranteed yields scale by level via `yieldMult`, rare outputs by `pRare`),
+> XP granted with polynomial level-ups (`xpToNext`), and **equippable outputs
+> become unique `item_instances`** with a rolled rarity (re-weighted by craft
+> level) and per-stat rolls. Players pick an activity and refill actions via
+> `/actions/*`. Offline players are processed too (the tick doesn't care who's
+> connected). Combat is Phase 5. Builds on Phase 3's atomic tick + crash-resume.
 
-### HTTP / WS surface (Phase 2)
+### HTTP / WS surface
 
-| Method | Route            | Auth                  | Purpose                                                   |
-| ------ | ---------------- | --------------------- | --------------------------------------------------------- |
-| GET    | `/health`        | —                     | liveness probe                                            |
-| GET    | `/auth/csrf`     | —                     | issue a CSRF token (+ sets the secret cookie)             |
-| POST   | `/auth/register` | —                     | create account → sets cookies, returns `{ player }` (201) |
-| POST   | `/auth/login`    | —                     | sets cookies, returns `{ player }` (200) / 401            |
-| POST   | `/auth/refresh`  | refresh cookie + CSRF | rotate refresh token, reissue access cookie               |
-| POST   | `/auth/logout`   | CSRF                  | revoke refresh token, clear cookies                       |
-| GET    | `/me`            | access cookie         | current player summary                                    |
-| WS     | `/ws`            | access cookie         | hello + ping/pong skeleton; registers the connection      |
+| Method | Route              | Auth                  | Purpose                                                   |
+| ------ | ------------------ | --------------------- | --------------------------------------------------------- |
+| GET    | `/health`          | —                     | liveness probe                                            |
+| GET    | `/auth/csrf`       | —                     | issue a CSRF token (+ sets the secret cookie)             |
+| POST   | `/auth/register`   | —                     | create account → sets cookies, returns `{ player }` (201) |
+| POST   | `/auth/login`      | —                     | sets cookies, returns `{ player }` (200) / 401            |
+| POST   | `/auth/refresh`    | refresh cookie + CSRF | rotate refresh token, reissue access cookie               |
+| POST   | `/auth/logout`     | CSRF                  | revoke refresh token, clear cookies                       |
+| GET    | `/me`              | access cookie         | current player summary                                    |
+| POST   | `/actions/select`  | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)   |
+| POST   | `/actions/refresh` | access cookie + CSRF  | refill the action bar to `max_actions`                    |
+| WS     | `/ws`              | access cookie         | hello + ping/pong skeleton; registers the connection      |
 
 Auth tokens are delivered as **httpOnly cookies** (never in the response body or
 `localStorage`, per SPEC §13). The websocket authenticates from the access cookie
@@ -119,6 +123,18 @@ the gap), and the resume point is the last committed `world_state`. The real
 crash-resume is also observable by killing and restarting the server (or
 `docker compose restart server`): it logs `resuming world at tick #N` and
 continues — `tick_number` never resets.
+
+### Verify transform actions (Phase 4 acceptance)
+
+```bash
+pnpm --filter @eishera/server phase4:demo
+```
+
+Sets players gathering/crafting and drives ticks directly (no websocket → genuine
+offline processing) to prove an offline player's banked actions process down to 0,
+XP/level and yield are correct, and crafting a sword produces an `item_instances`
+row whose per-stat rolls land inside the chosen rarity's band — with inputs
+consumed and XP granted.
 
 ## Database migrations
 
@@ -239,3 +255,27 @@ Docker, the server container applies pending migrations on startup
 - **Active-set / boss / housing steps are structural placeholders** in Phase 3 —
   the tick counts the active set but mutates nothing. Handlers + `actions_remaining--`
   arrive in Phase 4, housing completion in Phase 6, the boss in Phase 8.
+
+## Key decisions (Phase 4)
+
+- **Formulas in `packages/shared`, RNG in the server.** `xpToNext`, `yieldMult`,
+  `pRare`, `gainXp`, and the rarity-weight math are pure and shared (server runs
+  them authoritatively; the client will use them for prediction). Random rolls
+  (which rarity, which stat multipliers, fractional-yield rounding) are
+  server-only — the client can't predict RNG.
+- **Bounded rarity reweight = linear** (resolving the gap flagged in Phase 0):
+  `weight'(tier) = base_weight × (1 + shift × quality × (tier−1))`. Higher
+  `quality` (craft level on crafts, LUCK on drops) lifts uncommon→unique
+  meaningfully, while mythic's tiny base weight keeps it extremely scarce. `shift`
+  is `rarity_quality_shift` / `rarity_luck_shift` — all config-tunable.
+- **Equippable outputs don't scale in quantity** — crafting always yields the
+  listed count of unique `item_instances` (quality scales via the rarity roll, not
+  count); only stackable outputs scale by `yieldMult`.
+- **Fractional yield is probabilistic** — `floor(expected)` plus a chance for the
+  remainder, so expected output is exact over many actions without fractional rows.
+- **Stall = no consumption.** If `req_level` isn't met or inputs are missing, the
+  action doesn't progress and no action is spent (the player is simply stuck until
+  they level up or acquire materials) — gathering recipes never stall.
+- **One transform per active player per tick**, all inside the single tick
+  transaction (atomic with the clock advance). Bulk-processing is a future
+  optimization; correctness-first per-player for now.

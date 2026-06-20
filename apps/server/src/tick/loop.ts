@@ -11,6 +11,7 @@
 import { pool, withTransaction } from '../db/pool.js';
 import { getConfig } from '../config/store.js';
 import { liveClockStep } from './clock.js';
+import { processTransform } from '../actions/transform.js';
 
 export interface WorldState {
   tick_number: number;
@@ -51,7 +52,8 @@ export async function readWorldState(): Promise<WorldState> {
  * DB clocks can't drift apart.
  */
 export async function runTick(): Promise<TickResult> {
-  const cfg = getConfig().gameConfig;
+  const snapshot = getConfig();
+  const cfg = snapshot.gameConfig;
   const tickSeconds = cfg.tick_seconds;
   const outageThreshold = cfg.outage_threshold_seconds;
 
@@ -77,14 +79,19 @@ export async function runTick(): Promise<TickResult> {
     const newUptime = Number(row.uptime_seconds) + uptimeDelta;
     const newTick = Number(row.tick_number) + 1;
 
-    // 2. ACTIONS (active set): structure only in Phase 3 — count, don't mutate.
-    //    Phase 4 adds FOR UPDATE + the transform/combat handlers + actions_remaining--.
+    // 2. ACTIONS (active set). Phase 4: transform recipes only — lock the active
+    //    transform players and run one action each. Combat (active_monster_id)
+    //    arrives in Phase 5. Each player's writes are part of this one tick txn.
     const active = await client.query(
-      `SELECT count(*)::int AS n FROM players
-        WHERE actions_remaining > 0
-          AND (active_recipe_id IS NOT NULL OR active_monster_id IS NOT NULL)`,
+      `SELECT id, active_recipe_id FROM players
+        WHERE actions_remaining > 0 AND active_recipe_id IS NOT NULL
+        FOR UPDATE`,
     );
-    const activeCount = (active.rows[0] as { n: number }).n;
+    for (const r of active.rows as { id: string; active_recipe_id: number }[]) {
+      const recipe = snapshot.recipes.get(r.active_recipe_id);
+      if (recipe) await processTransform(client, Number(r.id), recipe, snapshot);
+    }
+    const activeCount = active.rows.length;
 
     // 3. WORLD BOSS — Phase 8.   4. HOUSING COMPLETION — Phase 6.
 
