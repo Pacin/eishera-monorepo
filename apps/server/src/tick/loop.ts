@@ -13,7 +13,7 @@ import { getConfig } from '../config/store.js';
 import { liveClockStep } from './clock.js';
 import { processTransform } from '../actions/transform.js';
 import { processCombat } from '../combat/handler.js';
-import { connectionsFor } from '../ws/registry.js';
+import { pushToPlayer } from '../ws/registry.js';
 import type { BattleResult } from '@eishera/shared';
 
 export interface WorldState {
@@ -124,17 +124,10 @@ export async function runTick(): Promise<TickResult> {
   });
 }
 
-/** Push each battle's result to the player's open sockets (after the tick commits). */
+/** Push each battle's result to the player's room (after the tick commits). */
 function pushBattleResults(battles: { playerId: number; result: BattleResult }[]): void {
   for (const b of battles) {
-    const msg = JSON.stringify({ type: 'battle', result: b.result });
-    for (const socket of connectionsFor(b.playerId)) {
-      try {
-        socket.send(msg);
-      } catch {
-        /* socket may be closing; the registry cleans up on 'close' */
-      }
-    }
+    pushToPlayer(b.playerId, 'battle', b.result);
   }
 }
 

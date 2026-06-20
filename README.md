@@ -5,38 +5,39 @@ A persistent browser-based game (PBBG) — server-authoritative, with **PostgreS
 > **Status: Phase 5 (combat + base stats + equipment + active effects).** The tick
 > now also resolves **combat**: each battling player fights their selected monster
 > as a per-action multi-round duel (fight-HP from VIT, hit/crit/dodge/mitigation
-> from effective stats via `combat_coeffs`), with a `BattleResult` pushed over the
-> websocket. Winning grants combat XP (→ base-stat points per level), gold, and
+> from effective stats via `combat_coeffs`), with a `BattleResult` pushed over
+> Socket.IO. Winning grants combat XP (→ base-stat points per level), gold, and
 > loot (equippable loot is a LUCK-nudged `item_instance`); losing grants nothing.
 > **Equipment** (`/equipment/*`) and **potions** (`/actions/consume` →
 > `player_active_effects`) feed effective stats: `(base + equipment) × (1 +
 combat_all%)`. Transform actions (Phase 4) still run. Builds on Phase 3's atomic
 > tick + crash-resume.
 
-### HTTP / WS surface
+### HTTP / Realtime surface
 
-| Method | Route                | Auth                  | Purpose                                                   |
-| ------ | -------------------- | --------------------- | --------------------------------------------------------- |
-| GET    | `/health`            | —                     | liveness probe                                            |
-| GET    | `/auth/csrf`         | —                     | issue a CSRF token (+ sets the secret cookie)             |
-| POST   | `/auth/register`     | —                     | create account → sets cookies, returns `{ player }` (201) |
-| POST   | `/auth/login`        | —                     | sets cookies, returns `{ player }` (200) / 401            |
-| POST   | `/auth/refresh`      | refresh cookie + CSRF | rotate refresh token, reissue access cookie               |
-| POST   | `/auth/logout`       | CSRF                  | revoke refresh token, clear cookies                       |
-| GET    | `/me`                | access cookie         | current player summary                                    |
-| POST   | `/actions/select`    | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)   |
-| POST   | `/actions/battle`    | access cookie + CSRF  | choose a monster to fight (`{ monsterId }`)               |
-| POST   | `/actions/refresh`   | access cookie + CSRF  | refill the action bar to `max_actions`                    |
-| POST   | `/actions/consume`   | access cookie + CSRF  | drink a potion (`{ itemCode }`) → active effect           |
-| POST   | `/equipment/equip`   | access cookie + CSRF  | equip an owned instance (`{ instanceId }`)                |
-| POST   | `/equipment/unequip` | access cookie + CSRF  | clear a slot (`{ slot }`)                                 |
-| GET    | `/equipment`         | access cookie         | equipped items + current effective combat stats           |
-| WS     | `/ws`                | access cookie         | hello + ping/pong; receives `battle` results              |
+| Method    | Route                | Auth                  | Purpose                                                   |
+| --------- | -------------------- | --------------------- | --------------------------------------------------------- |
+| GET       | `/health`            | —                     | liveness probe                                            |
+| GET       | `/auth/csrf`         | —                     | issue a CSRF token (+ sets the secret cookie)             |
+| POST      | `/auth/register`     | —                     | create account → sets cookies, returns `{ player }` (201) |
+| POST      | `/auth/login`        | —                     | sets cookies, returns `{ player }` (200) / 401            |
+| POST      | `/auth/refresh`      | refresh cookie + CSRF | rotate refresh token, reissue access cookie               |
+| POST      | `/auth/logout`       | CSRF                  | revoke refresh token, clear cookies                       |
+| GET       | `/me`                | access cookie         | current player summary                                    |
+| POST      | `/actions/select`    | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)   |
+| POST      | `/actions/battle`    | access cookie + CSRF  | choose a monster to fight (`{ monsterId }`)               |
+| POST      | `/actions/refresh`   | access cookie + CSRF  | refill the action bar to `max_actions`                    |
+| POST      | `/actions/consume`   | access cookie + CSRF  | drink a potion (`{ itemCode }`) → active effect           |
+| POST      | `/equipment/equip`   | access cookie + CSRF  | equip an owned instance (`{ instanceId }`)                |
+| POST      | `/equipment/unequip` | access cookie + CSRF  | clear a slot (`{ slot }`)                                 |
+| GET       | `/equipment`         | access cookie         | equipped items + current effective combat stats           |
+| Socket.IO | (connection)         | access cookie         | hello + ping/pong; receives `battle` results              |
 
 Auth tokens are delivered as **httpOnly cookies** (never in the response body or
-`localStorage`, per SPEC §13). The websocket authenticates from the access cookie
-at handshake — no token in the URL. In dev the Vite server proxies `/auth`, `/me`,
-`/health`, and `/ws` to the backend so the SPA and API share an origin (keeps
+`localStorage`, per SPEC §13). Realtime is **Socket.IO**, which authenticates the
+access cookie at the connection handshake — no token in the URL. In dev the Vite
+server proxies `/auth`, `/me`, `/health`, `/actions`, `/equipment`, and
+`/socket.io` to the backend so the SPA and API share an origin (keeps
 `SameSite=Strict` working without HTTPS).
 
 Smoke-test the whole surface against a running server:
@@ -72,7 +73,7 @@ This starts Postgres, waits for it to be healthy, applies migrations, **seeds
 content** (idempotent), then runs the server. The server logs `config loaded …`
 and stays up. Stop with `docker compose down` (add `-v` to also drop the volume).
 
-- Server: `http://localhost:4000` (HTTP + websocket; see the surface table above)
+- Server: `http://localhost:4000` (HTTP + Socket.IO; see the surface table above)
 - Database: published on host port **5433** (to avoid colliding with a local
   Postgres on 5432); inside the network the server reaches it at `db:5432`.
 
@@ -223,9 +224,16 @@ Docker, the server container applies pending migrations on startup
 
 ## Key decisions (Phase 2)
 
-- **Fastify v5** for HTTP + websockets on one port (`@fastify/websocket`),
-  chosen for first-class TS, built-in JSON-schema validation, and auth hooks the
-  later action/market/chat routes will reuse.
+- **Fastify v5** for HTTP, chosen for first-class TS, built-in JSON-schema
+  validation, and auth hooks the action/market/chat routes reuse.
+- **Realtime via Socket.IO** (attached to the same HTTP server/port). The
+  connection handshake authenticates the httpOnly access cookie by reusing
+  Fastify's own cookie parser + JWT verify (one auth path, not a parallel one).
+  Each connection joins a per-player room (`player:<id>`); the tick pushes
+  `battle` results with `io.to(room).emit(...)`. `SameSite=Strict` on the access
+  cookie blocks cross-site handshakes from carrying it. (The `ws`/`@fastify/websocket`
+  approach was swapped out for Socket.IO's rooms + client reconnect ergonomics; a
+  Redis adapter is the later multi-process path, still a v1 non-goal.)
 - **httpOnly-cookie auth, hardened** (`@fastify/jwt` + `@fastify/cookie` +
   `bcryptjs`):
   - **Access token** — short-lived JWT (15m) in an httpOnly cookie. Not readable

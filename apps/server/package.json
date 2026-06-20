@@ -17,7 +17,8 @@
     "tick:demo": "dotenv -e ../../.env -- tsx src/scripts/tick-demo.ts",
     "phase4:demo": "dotenv -e ../../.env -- tsx src/scripts/phase4-demo.ts",
     "phase5:demo": "dotenv -e ../../.env -- tsx src/scripts/phase5-demo.ts",
-    "smoke": "dotenv -e ../../.env -- tsx src/scripts/phase2-smoke.ts"
+    "smoke": "dotenv -e ../../.env -- tsx src/scripts/phase2-smoke.ts",
+    "sio:check": "dotenv -e ../../.env -- tsx src/scripts/sio-battle-check.ts"
   },
   "dependencies": {
     "@eishera/shared": "workspace:*",
@@ -25,20 +26,19 @@
     "@fastify/csrf-protection": "^7.1.0",
     "@fastify/jwt": "^9.0.3",
     "@fastify/rate-limit": "^10.2.2",
-    "@fastify/websocket": "^11.0.2",
     "bcryptjs": "^2.4.3",
     "fastify": "^5.2.1",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.10.7",
     "@types/pg": "^8.11.10",
-    "@types/ws": "^8.5.13",
     "dotenv-cli": "^8.0.0",
     "node-pg-migrate": "^7.9.0",
+    "socket.io-client": "^4.8.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3",
-    "ws": "^8.18.0"
+    "typescript": "^5.7.3"
   }
 }

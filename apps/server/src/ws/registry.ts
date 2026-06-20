@@ -1,39 +1,33 @@
-// In-memory websocket connection registry (SPEC §2.1 allows websocket
-// connections in memory — rebuildable, not authoritative). Maps player id →
-// open sockets so later phases can push action results, market fills, chat, and
-// boss updates. Phase 2 only populates/depopulates it.
+// Realtime layer (SPEC §2.1: websocket connections live in memory — rebuildable,
+// not authoritative). Backed by Socket.IO. Each connection joins a per-player
+// room (`player:<id>`), so pushing to a player is a room emit — no manual socket
+// bookkeeping. The tick loop and later phases (chat, boss) push through here.
 
-/** The subset of the ws socket API this registry relies on. */
-export interface WsLike {
-  send(data: string): void;
-  close(): void;
+import type { Server as IOServer } from 'socket.io';
+
+let io: IOServer | null = null;
+
+export const playerRoom = (playerId: number): string => `player:${playerId}`;
+
+/** Register the Socket.IO server instance the app created. */
+export function setRealtime(server: IOServer): void {
+  io = server;
 }
 
-const connections = new Map<number, Set<WsLike>>();
+/** Emit an event to every socket a player has open. No-op if realtime is down. */
+export function pushToPlayer(playerId: number, event: string, payload: unknown): void {
+  io?.to(playerRoom(playerId)).emit(event, payload);
+}
 
-export function addConnection(playerId: number, socket: WsLike): void {
-  let set = connections.get(playerId);
-  if (!set) {
-    set = new Set();
-    connections.set(playerId, set);
+/** Total connected sockets across all players. */
+export function onlineCount(): number {
+  return io?.engine.clientsCount ?? 0;
+}
+
+/** Close the realtime server (graceful shutdown). */
+export async function closeRealtime(): Promise<void> {
+  if (io) {
+    await io.close();
+    io = null;
   }
-  set.add(socket);
-}
-
-export function removeConnection(playerId: number, socket: WsLike): void {
-  const set = connections.get(playerId);
-  if (!set) return;
-  set.delete(socket);
-  if (set.size === 0) connections.delete(playerId);
-}
-
-export function connectionsFor(playerId: number): ReadonlySet<WsLike> {
-  return connections.get(playerId) ?? new Set();
-}
-
-/** Total open sockets (across all players). */
-export function connectionCount(): number {
-  let n = 0;
-  for (const set of connections.values()) n += set.size;
-  return n;
 }

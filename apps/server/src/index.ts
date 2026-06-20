@@ -8,6 +8,7 @@ import { env } from './config/env.js';
 import { initConfig, getConfig, shutdownConfig } from './config/store.js';
 import { buildServer } from './http/server.js';
 import { ensureWorldState, readWorldState, startTickLoop, stopTickLoop } from './tick/loop.js';
+import { closeRealtime } from './ws/registry.js';
 
 async function main(): Promise<void> {
   console.log(`[eishera] server starting (port: ${env.port})`);
@@ -26,7 +27,7 @@ async function main(): Promise<void> {
 
   const app = await buildServer();
   await app.listen({ port: env.port, host: '0.0.0.0' });
-  console.log(`[eishera] http+ws listening on :${env.port}`);
+  console.log(`[eishera] http + socket.io listening on :${env.port}`);
 
   // Resume the world from the last committed tick (crash-resilient) and start
   // the heartbeat. The first tick's live clock freezes any downtime gap (§5).
@@ -43,6 +44,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`[eishera] received ${signal}, shutting down...`);
     stopTickLoop();
+    await closeRealtime().catch(() => undefined); // closes Socket.IO + the HTTP server
     await app.close().catch(() => undefined);
     await shutdownConfig().catch(() => undefined);
     await closePool().catch(() => undefined);

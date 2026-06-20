@@ -1,17 +1,18 @@
-// Fastify HTTP + websocket server (SPEC §14 Phase 2, hardened).
+// Fastify HTTP server + Socket.IO realtime (SPEC §14 Phase 2, hardened).
 //
 // Auth model: httpOnly cookies (no localStorage, SPEC §13). A short-lived access
 // JWT (15m) authorizes requests; a long-lived opaque refresh token (rotating,
 // revocable, stored hashed in Postgres) renews it. SameSite=Strict + a CSRF
-// token guard cross-site abuse; auth routes are rate-limited. The websocket
-// authenticates from the access cookie at handshake (no token in the URL).
+// token guard cross-site abuse; auth routes are rate-limited. Socket.IO attaches
+// to the same HTTP server and authenticates the access cookie at the handshake,
+// reusing Fastify's cookie parser + JWT (no token in the URL).
 
 import Fastify, { type FastifyInstance } from 'fastify';
+import { Server as IOServer } from 'socket.io';
 import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import csrf from '@fastify/csrf-protection';
-import websocket from '@fastify/websocket';
 import { env } from '../config/env.js';
 import {
   createPlayer,
@@ -33,7 +34,7 @@ import {
   setRefreshCookie,
   clearAuthCookies,
 } from '../auth/cookies.js';
-import { addConnection, removeConnection, connectionCount, type WsLike } from '../ws/registry.js';
+import { setRealtime, onlineCount, playerRoom } from '../ws/registry.js';
 import { getConfig } from '../config/store.js';
 import { selectRecipe, selectMonster, clearActivity, refreshActions } from '../actions/service.js';
 import { equipInstance, unequipSlot, getEquipment } from '../equipment/service.js';
@@ -72,7 +73,6 @@ export async function buildServer(): Promise<FastifyInstance> {
   await app.register(csrf, {
     cookieOpts: { signed: true, sameSite: 'strict', secure: env.cookieSecure, path: '/' },
   });
-  await app.register(websocket);
 
   app.decorate('authenticate', async function (request, reply): Promise<void> {
     try {
@@ -325,42 +325,36 @@ export async function buildServer(): Promise<FastifyInstance> {
     return { equipped, stats };
   });
 
-  // Websocket: authenticate from the access cookie at handshake (browsers send
-  // it automatically same-origin). Register the socket, ack with hello, pong on
-  // ping. Real live updates arrive in later phases.
-  app.get(
-    '/ws',
-    { websocket: true },
-    (socket: WsLike & { on: (e: string, cb: (data: unknown) => void) => void }, request) => {
-      const raw = request.cookies[ACCESS_COOKIE];
-      let playerId: number;
-      try {
-        const payload = app.jwt.verify(raw ?? '') as { playerId: number };
-        playerId = payload.playerId;
-      } catch {
-        socket.send(JSON.stringify({ type: 'error', error: 'unauthorized' }));
-        socket.close();
-        return;
-      }
+  // ── Socket.IO realtime ──────────────────────────────────────────────────────
+  // Attached to Fastify's underlying HTTP server (same port). Same-origin in
+  // prod and via the Vite dev proxy; SameSite=Strict on the access cookie blocks
+  // cross-site handshakes from carrying it, so a permissive dev CORS origin is safe.
+  const io = new IOServer(app.server, {
+    cors: { origin: true, credentials: true },
+  });
 
-      addConnection(playerId, socket);
-      socket.send(JSON.stringify({ type: 'hello', playerId, online: connectionCount() }));
+  // Handshake auth: verify the access cookie, reusing the same cookie parser +
+  // JWT the HTTP routes use (not a separate verification path).
+  io.use((socket, next) => {
+    try {
+      const cookies = app.parseCookie(socket.handshake.headers.cookie ?? '');
+      const payload = app.jwt.verify(cookies[ACCESS_COOKIE] ?? '') as { playerId: number };
+      (socket.data as { playerId: number }).playerId = payload.playerId;
+      next();
+    } catch {
+      next(new Error('unauthorized'));
+    }
+  });
 
-      socket.on('message', (data: unknown) => {
-        let msg: { type?: string; t?: number } | null = null;
-        try {
-          msg = JSON.parse(String(data));
-        } catch {
-          return;
-        }
-        if (msg?.type === 'ping') {
-          socket.send(JSON.stringify({ type: 'pong', t: msg.t ?? null }));
-        }
-      });
+  io.on('connection', (socket) => {
+    const playerId = (socket.data as { playerId: number }).playerId;
+    void socket.join(playerRoom(playerId));
+    socket.emit('hello', { playerId, online: onlineCount() });
+    socket.on('ping', (data: { t?: number } | undefined) => {
+      socket.emit('pong', { t: data?.t ?? null });
+    });
+  });
 
-      socket.on('close', () => removeConnection(playerId, socket));
-    },
-  );
-
+  setRealtime(io);
   return app;
 }

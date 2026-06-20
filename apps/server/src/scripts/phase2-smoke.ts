@@ -1,15 +1,14 @@
 // Phase 2 auth smoke test (hardened). Exercises cookie auth, CSRF, rate-limit
 // headers, refresh rotation + reuse detection, logout revocation, and
-// cookie-authenticated websockets against a running server. Uses Node global
-// fetch (with a hand-rolled cookie jar) and the `ws` client (for Cookie headers
-// on the WS handshake). Start the server first: `pnpm dev`.
+// cookie-authenticated realtime (Socket.IO) against a running server. Uses Node
+// global fetch (with a hand-rolled cookie jar) and socket.io-client (with a
+// Cookie header on the handshake). Start the server first: `pnpm dev`.
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import WebSocket from 'ws';
+import { io as ioClient } from 'socket.io-client';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const BASE = `http://localhost:${PORT}`;
-const WS_BASE = `ws://localhost:${PORT}`;
 
 let failures = 0;
 function check(label: string, cond: boolean, detail?: unknown): void {
@@ -57,30 +56,33 @@ const json = (body: unknown): RequestInit => ({
 
 function wsTest(cookieStr: string | null): Promise<{ first: any; pong?: any }> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${WS_BASE}/ws`, cookieStr ? { headers: { Cookie: cookieStr } } : {});
+    const socket = ioClient(BASE, {
+      transports: ['websocket'],
+      reconnection: false,
+      extraHeaders: cookieStr ? { Cookie: cookieStr } : {},
+    });
     const out: { first?: any; pong?: any } = {};
     const timer = setTimeout(() => {
-      ws.terminate();
-      reject(new Error('ws timeout'));
-    }, 3000);
-    ws.on('message', (buf) => {
-      const msg = JSON.parse(buf.toString());
-      if (!out.first) {
-        out.first = msg;
-        if (msg.type === 'hello') ws.send(JSON.stringify({ type: 'ping', t: 42 }));
-        else {
-          clearTimeout(timer);
-          ws.close();
-          resolve({ first: out.first });
-        }
-      } else if (msg.type === 'pong') {
-        out.pong = msg;
-        clearTimeout(timer);
-        ws.close();
-        resolve({ first: out.first, pong: out.pong });
-      }
+      socket.close();
+      reject(new Error('socket timeout'));
+    }, 4000);
+    // Unauthorized handshake → server rejects with a connect_error.
+    socket.on('connect_error', (err) => {
+      out.first = { type: 'error', error: err.message };
+      clearTimeout(timer);
+      socket.close();
+      resolve({ first: out.first });
     });
-    ws.on('error', () => undefined);
+    socket.on('hello', (data: any) => {
+      out.first = { type: 'hello', ...data };
+      socket.emit('ping', { t: 42 });
+    });
+    socket.on('pong', (data: any) => {
+      out.pong = { type: 'pong', t: data?.t };
+      clearTimeout(timer);
+      socket.close();
+      resolve({ first: out.first, pong: out.pong });
+    });
   });
 }
 
