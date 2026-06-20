@@ -35,7 +35,10 @@ import {
 } from '../auth/cookies.js';
 import { addConnection, removeConnection, connectionCount, type WsLike } from '../ws/registry.js';
 import { getConfig } from '../config/store.js';
-import { selectRecipe, clearActivity, refreshActions } from '../actions/service.js';
+import { selectRecipe, selectMonster, clearActivity, refreshActions } from '../actions/service.js';
+import { equipInstance, unequipSlot, getEquipment } from '../equipment/service.js';
+import { effectiveStatsForPlayer } from '../combat/stats.js';
+import { consumePotion } from '../effects/service.js';
 import type { AuthResponse, AuthTokenPayload } from '@eishera/shared';
 
 const credentialsSchema = {
@@ -220,6 +223,107 @@ export async function buildServer(): Promise<FastifyInstance> {
       return getPlayerSummary(request.user.playerId);
     },
   );
+
+  // Select a monster to battle (combat). CSRF + auth.
+  app.post(
+    '/actions/battle',
+    {
+      onRequest: app.csrfProtection,
+      preHandler: [app.authenticate],
+      schema: {
+        body: {
+          type: 'object',
+          required: ['monsterId'],
+          additionalProperties: false,
+          properties: { monsterId: { type: 'integer' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { monsterId } = request.body as { monsterId: number };
+      if (!getConfig().monsters.has(monsterId)) {
+        return reply.code(400).send({ error: 'unknown_monster' });
+      }
+      await selectMonster(request.user.playerId, monsterId);
+      return getPlayerSummary(request.user.playerId);
+    },
+  );
+
+  // Consume a potion → active effect. CSRF + auth.
+  app.post(
+    '/actions/consume',
+    {
+      onRequest: app.csrfProtection,
+      preHandler: [app.authenticate],
+      schema: {
+        body: {
+          type: 'object',
+          required: ['itemCode'],
+          additionalProperties: false,
+          properties: { itemCode: { type: 'string' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { itemCode } = request.body as { itemCode: string };
+      const result = await consumePotion(request.user.playerId, itemCode, getConfig());
+      if ('error' in result) return reply.code(400).send(result);
+      return result;
+    },
+  );
+
+  // Equipment: equip / unequip / view. CSRF + auth on the mutating routes.
+  app.post(
+    '/equipment/equip',
+    {
+      onRequest: app.csrfProtection,
+      preHandler: [app.authenticate],
+      schema: {
+        body: {
+          type: 'object',
+          required: ['instanceId'],
+          additionalProperties: false,
+          properties: { instanceId: { type: 'integer' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { instanceId } = request.body as { instanceId: number };
+      const result = await equipInstance(request.user.playerId, instanceId, getConfig());
+      if ('error' in result) return reply.code(400).send(result);
+      return getEquipment(request.user.playerId, getConfig());
+    },
+  );
+
+  app.post(
+    '/equipment/unequip',
+    {
+      onRequest: app.csrfProtection,
+      preHandler: [app.authenticate],
+      schema: {
+        body: {
+          type: 'object',
+          required: ['slot'],
+          additionalProperties: false,
+          properties: { slot: { type: 'string' } },
+        },
+      },
+    },
+    async (request) => {
+      const { slot } = request.body as { slot: string };
+      await unequipSlot(request.user.playerId, slot);
+      return getEquipment(request.user.playerId, getConfig());
+    },
+  );
+
+  app.get('/equipment', { preHandler: [app.authenticate] }, async (request) => {
+    const cfg = getConfig();
+    const [equipped, stats] = await Promise.all([
+      getEquipment(request.user.playerId, cfg),
+      effectiveStatsForPlayer(request.user.playerId, cfg),
+    ]);
+    return { equipped, stats };
+  });
 
   // Websocket: authenticate from the access cookie at handshake (browsers send
   // it automatically same-origin). Register the socket, ack with hello, pong on

@@ -2,30 +2,36 @@
 
 A persistent browser-based game (PBBG) — server-authoritative, with **PostgreSQL as the single source of truth**. Built in ordered phases per [`SPEC.md`](./SPEC.md); starting content and balance live in [`SEED.md`](./SEED.md).
 
-> **Status: Phase 4 (transform actions + formula layer).** The tick now runs real
-> gameplay: each active player's selected **transform** recipe (mine/quarry/hunt/
-> craft/brew) is processed once per tick — inputs consumed, outputs rolled
-> (guaranteed yields scale by level via `yieldMult`, rare outputs by `pRare`),
-> XP granted with polynomial level-ups (`xpToNext`), and **equippable outputs
-> become unique `item_instances`** with a rolled rarity (re-weighted by craft
-> level) and per-stat rolls. Players pick an activity and refill actions via
-> `/actions/*`. Offline players are processed too (the tick doesn't care who's
-> connected). Combat is Phase 5. Builds on Phase 3's atomic tick + crash-resume.
+> **Status: Phase 5 (combat + base stats + equipment + active effects).** The tick
+> now also resolves **combat**: each battling player fights their selected monster
+> as a per-action multi-round duel (fight-HP from VIT, hit/crit/dodge/mitigation
+> from effective stats via `combat_coeffs`), with a `BattleResult` pushed over the
+> websocket. Winning grants combat XP (→ base-stat points per level), gold, and
+> loot (equippable loot is a LUCK-nudged `item_instance`); losing grants nothing.
+> **Equipment** (`/equipment/*`) and **potions** (`/actions/consume` →
+> `player_active_effects`) feed effective stats: `(base + equipment) × (1 +
+combat_all%)`. Transform actions (Phase 4) still run. Builds on Phase 3's atomic
+> tick + crash-resume.
 
 ### HTTP / WS surface
 
-| Method | Route              | Auth                  | Purpose                                                   |
-| ------ | ------------------ | --------------------- | --------------------------------------------------------- |
-| GET    | `/health`          | —                     | liveness probe                                            |
-| GET    | `/auth/csrf`       | —                     | issue a CSRF token (+ sets the secret cookie)             |
-| POST   | `/auth/register`   | —                     | create account → sets cookies, returns `{ player }` (201) |
-| POST   | `/auth/login`      | —                     | sets cookies, returns `{ player }` (200) / 401            |
-| POST   | `/auth/refresh`    | refresh cookie + CSRF | rotate refresh token, reissue access cookie               |
-| POST   | `/auth/logout`     | CSRF                  | revoke refresh token, clear cookies                       |
-| GET    | `/me`              | access cookie         | current player summary                                    |
-| POST   | `/actions/select`  | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)   |
-| POST   | `/actions/refresh` | access cookie + CSRF  | refill the action bar to `max_actions`                    |
-| WS     | `/ws`              | access cookie         | hello + ping/pong skeleton; registers the connection      |
+| Method | Route                | Auth                  | Purpose                                                   |
+| ------ | -------------------- | --------------------- | --------------------------------------------------------- |
+| GET    | `/health`            | —                     | liveness probe                                            |
+| GET    | `/auth/csrf`         | —                     | issue a CSRF token (+ sets the secret cookie)             |
+| POST   | `/auth/register`     | —                     | create account → sets cookies, returns `{ player }` (201) |
+| POST   | `/auth/login`        | —                     | sets cookies, returns `{ player }` (200) / 401            |
+| POST   | `/auth/refresh`      | refresh cookie + CSRF | rotate refresh token, reissue access cookie               |
+| POST   | `/auth/logout`       | CSRF                  | revoke refresh token, clear cookies                       |
+| GET    | `/me`                | access cookie         | current player summary                                    |
+| POST   | `/actions/select`    | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)   |
+| POST   | `/actions/battle`    | access cookie + CSRF  | choose a monster to fight (`{ monsterId }`)               |
+| POST   | `/actions/refresh`   | access cookie + CSRF  | refill the action bar to `max_actions`                    |
+| POST   | `/actions/consume`   | access cookie + CSRF  | drink a potion (`{ itemCode }`) → active effect           |
+| POST   | `/equipment/equip`   | access cookie + CSRF  | equip an owned instance (`{ instanceId }`)                |
+| POST   | `/equipment/unequip` | access cookie + CSRF  | clear a slot (`{ slot }`)                                 |
+| GET    | `/equipment`         | access cookie         | equipped items + current effective combat stats           |
+| WS     | `/ws`                | access cookie         | hello + ping/pong; receives `battle` results              |
 
 Auth tokens are delivered as **httpOnly cookies** (never in the response body or
 `localStorage`, per SPEC §13). The websocket authenticates from the access cookie
@@ -135,6 +141,17 @@ offline processing) to prove an offline player's banked actions process down to 
 XP/level and yield are correct, and crafting a sword produces an `item_instances`
 row whose per-stat rolls land inside the chosen rarity's band — with inputs
 consumed and XP granted.
+
+### Verify combat (Phase 5 acceptance)
+
+```bash
+pnpm --filter @eishera/server phase5:demo
+```
+
+Proves a battle returns rounds + damage dealt/taken; **equipping a higher-rolled
+sword measurably raises damage dealt** (averaged over many duels); a potion raises
+effective stats (`combat_all`); winning grants XP + gold (losing grants nothing);
+and a combat level-up grants base-stat points per `stat_per_level`.
 
 ## Database migrations
 
@@ -279,3 +296,26 @@ Docker, the server container applies pending migrations on startup
 - **One transform per active player per tick**, all inside the single tick
   transaction (atomic with the clock advance). Bulk-processing is a future
   optimization; correctness-first per-player for now.
+
+## Key decisions (Phase 5)
+
+- **Effective stats = `(base + equipment) × (1 + combat_all%)`.** Equipment adds
+  `items.base_stats[S] × rolls[S]` per equipped instance; `combat_all` (potions/
+  globals) is a multiplier on all six; housing joins in Phase 6. Per-stat flat
+  effects (e.g. `combat_str`) would add into the flat term.
+- **Duel formulas are config-driven** (`combat_coeffs`), documented in
+  `combat/duel.ts`: hit/crit via DEX(+LUCK), dodge via EVA, mitigation via DEF,
+  fight-HP via VIT, capped by `max_rounds`. `simulateDuel` is pure given an RNG —
+  so it's reproducible and testable; the round log is never persisted.
+- **Side effects after commit.** The tick collects `BattleResult`s inside the
+  transaction and only pushes them to websockets _after_ the tick commits — no I/O
+  inside the tick transaction (SPEC §6).
+- **Potion→effect mapping lives in `game_config.potion_effects`** (config, not a
+  new table) — resolving the Phase 1 deferral while keeping content-as-data.
+  Durations are on the live clock (freeze on downtime); re-drinking refreshes.
+- **Combat gains:** base-stat points on combat level-up (`stat_per_level`) plus a
+  low per-action `random_stat_gain_chance`. Equipment/potions are _effective_
+  bonuses, never permanent base gains. Loss = zero rewards.
+- **LUCK nudges loot rarity, not loot quantity** — equippable drops roll rarity
+  with `rarity_luck_shift × effective LUCK`; stackable loot drops at its flat
+  chance, unaffected by LUCK.

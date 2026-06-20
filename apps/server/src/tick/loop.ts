@@ -12,6 +12,9 @@ import { pool, withTransaction } from '../db/pool.js';
 import { getConfig } from '../config/store.js';
 import { liveClockStep } from './clock.js';
 import { processTransform } from '../actions/transform.js';
+import { processCombat } from '../combat/handler.js';
+import { connectionsFor } from '../ws/registry.js';
+import type { BattleResult } from '@eishera/shared';
 
 export interface WorldState {
   tick_number: number;
@@ -24,6 +27,7 @@ export interface TickResult {
   uptimeSeconds: number;
   outage: boolean;
   activeCount: number;
+  battles: { playerId: number; result: BattleResult }[];
 }
 
 /** Create the singleton world_state row if it doesn't exist yet. */
@@ -79,17 +83,32 @@ export async function runTick(): Promise<TickResult> {
     const newUptime = Number(row.uptime_seconds) + uptimeDelta;
     const newTick = Number(row.tick_number) + 1;
 
-    // 2. ACTIONS (active set). Phase 4: transform recipes only — lock the active
-    //    transform players and run one action each. Combat (active_monster_id)
-    //    arrives in Phase 5. Each player's writes are part of this one tick txn.
+    // 2. ACTIONS (active set). Lock the active players and run one action each:
+    //    a transform recipe (Phase 4) or a battle (Phase 5). Exactly one target
+    //    is set per player (DB CHECK). All writes are part of this one tick txn.
+    const battles: { playerId: number; result: BattleResult }[] = [];
     const active = await client.query(
-      `SELECT id, active_recipe_id FROM players
-        WHERE actions_remaining > 0 AND active_recipe_id IS NOT NULL
+      `SELECT id, active_recipe_id, active_monster_id FROM players
+        WHERE actions_remaining > 0
+          AND (active_recipe_id IS NOT NULL OR active_monster_id IS NOT NULL)
         FOR UPDATE`,
     );
-    for (const r of active.rows as { id: string; active_recipe_id: number }[]) {
-      const recipe = snapshot.recipes.get(r.active_recipe_id);
-      if (recipe) await processTransform(client, Number(r.id), recipe, snapshot);
+    for (const r of active.rows as {
+      id: string;
+      active_recipe_id: number | null;
+      active_monster_id: number | null;
+    }[]) {
+      const playerId = Number(r.id);
+      if (r.active_recipe_id !== null) {
+        const recipe = snapshot.recipes.get(r.active_recipe_id);
+        if (recipe) await processTransform(client, playerId, recipe, snapshot);
+      } else if (r.active_monster_id !== null) {
+        const monster = snapshot.monsters.get(r.active_monster_id);
+        if (monster) {
+          const result = await processCombat(client, playerId, monster, snapshot, newUptime);
+          battles.push({ playerId, result });
+        }
+      }
     }
     const activeCount = active.rows.length;
 
@@ -101,8 +120,22 @@ export async function runTick(): Promise<TickResult> {
       [newTick, newUptime, row.now],
     );
 
-    return { tickNumber: newTick, uptimeSeconds: newUptime, outage, activeCount };
+    return { tickNumber: newTick, uptimeSeconds: newUptime, outage, activeCount, battles };
   });
+}
+
+/** Push each battle's result to the player's open sockets (after the tick commits). */
+function pushBattleResults(battles: { playerId: number; result: BattleResult }[]): void {
+  for (const b of battles) {
+    const msg = JSON.stringify({ type: 'battle', result: b.result });
+    for (const socket of connectionsFor(b.playerId)) {
+      try {
+        socket.send(msg);
+      } catch {
+        /* socket may be closing; the registry cleans up on 'close' */
+      }
+    }
+  }
 }
 
 // ── heartbeat scheduling ─────────────────────────────────────────────────────
@@ -117,8 +150,11 @@ async function tickOnce(): Promise<void> {
   if (stopped) return;
   try {
     const r = await runTick();
+    // Side effects (websocket pushes) happen AFTER the tick commits.
+    pushBattleResults(r.battles);
     console.log(
       `[tick] #${r.tickNumber} uptime=${r.uptimeSeconds}s active=${r.activeCount}` +
+        (r.battles.length > 0 ? ` battles=${r.battles.length}` : '') +
         (r.outage ? ' (outage — clock frozen)' : ''),
     );
   } catch (err) {

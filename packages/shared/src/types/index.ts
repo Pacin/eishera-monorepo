@@ -152,3 +152,23 @@ export interface AuthTokenPayload {
 export interface AuthResponse {
   player: PlayerSummary;
 }
+
+/** Loot line in a battle result. */
+export interface LootDrop {
+  item: string;
+  qty: number;
+}
+
+/** Per-action battle summary (SPEC §7.2). The round-by-round log is NOT persisted;
+ *  this is what the client renders and receives over the websocket. */
+export interface BattleResult {
+  monster: string;
+  rounds: number;
+  damage_dealt: number;
+  damage_taken: number;
+  won: boolean;
+  crit_count: number;
+  gold: number;
+  xp: number;
+  loot: LootDrop[];
+}

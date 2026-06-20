@@ -73,6 +73,26 @@ export const gameConfig: GameConfigSeed[] = [
   },
   { key: 'outage_threshold_seconds', value: 30, description: 'live-clock gap treated as downtime' },
   { key: 'market_fee', value: 0, description: 'market transaction fee fraction' },
+  {
+    // Potion code → active effect (SEED §8.1). Config-driven so it stays data,
+    // not code (SPEC §2.7). Consuming the potion creates a player_active_effects row.
+    key: 'potion_effects',
+    value: {
+      power_potion: {
+        effect_type: 'combat_all',
+        magnitude: 0.2,
+        duration_seconds: 1800,
+        stacking: 'highest',
+      },
+      yield_potion: {
+        effect_type: 'gather_yield',
+        magnitude: 0.25,
+        duration_seconds: 1800,
+        stacking: 'highest',
+      },
+    },
+    description: 'potion code → { effect_type, magnitude, duration_seconds, stacking }',
+  },
 ];
 
 export const skills: Skill[] = [

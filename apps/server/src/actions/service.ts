@@ -13,6 +13,14 @@ export async function selectRecipe(playerId: number, recipeId: number): Promise<
   ]);
 }
 
+/** Select a monster to battle (clears any transform selection). */
+export async function selectMonster(playerId: number, monsterId: number): Promise<void> {
+  await query('UPDATE players SET active_monster_id = $2, active_recipe_id = NULL WHERE id = $1', [
+    playerId,
+    monsterId,
+  ]);
+}
+
 /** Stop the current activity (go idle). */
 export async function clearActivity(playerId: number): Promise<void> {
   await query(
