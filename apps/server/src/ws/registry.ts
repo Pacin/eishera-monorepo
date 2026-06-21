@@ -8,6 +8,7 @@ import type { Server as IOServer } from 'socket.io';
 let io: IOServer | null = null;
 
 export const playerRoom = (playerId: number): string => `player:${playerId}`;
+export const chatRoom = (channel: string): string => `chat:${channel}`;
 
 /** Register the Socket.IO server instance the app created. */
 export function setRealtime(server: IOServer): void {
@@ -17,6 +18,11 @@ export function setRealtime(server: IOServer): void {
 /** Emit an event to every socket a player has open. No-op if realtime is down. */
 export function pushToPlayer(playerId: number, event: string, payload: unknown): void {
   io?.to(playerRoom(playerId)).emit(event, payload);
+}
+
+/** Broadcast an event to every socket subscribed to a chat channel room. */
+export function broadcastToChannel(channel: string, event: string, payload: unknown): void {
+  io?.to(chatRoom(channel)).emit(event, payload);
 }
 
 /** Total connected sockets across all players. */

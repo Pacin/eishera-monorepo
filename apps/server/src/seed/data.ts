@@ -116,6 +116,21 @@ export const gameConfig: GameConfigSeed[] = [
     },
     description: 'global boost code → token cost (purchasable boosts only)',
   },
+  {
+    // Chat tuning (SPEC §11). `channels` is the allowed set (bounds buffer memory);
+    // `buffer_size` is the per-channel "last N" ring buffer served on connect;
+    // rate-limit is `max` messages per `window_seconds` per player; `max_length`
+    // caps message body. Numbers are starting points, tunable live like all config.
+    key: 'chat',
+    value: {
+      channels: ['global', 'trade', 'help'],
+      buffer_size: 50,
+      rate_max: 5,
+      rate_window_seconds: 10,
+      max_length: 500,
+    },
+    description: 'chat: { channels, buffer_size, rate_max, rate_window_seconds, max_length }',
+  },
 ];
 
 export const skills: Skill[] = [

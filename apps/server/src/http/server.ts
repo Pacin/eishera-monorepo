@@ -34,7 +34,14 @@ import {
   setRefreshCookie,
   clearAuthCookies,
 } from '../auth/cookies.js';
-import { setRealtime, onlineCount, playerRoom } from '../ws/registry.js';
+import {
+  setRealtime,
+  onlineCount,
+  playerRoom,
+  chatRoom,
+  broadcastToChannel,
+} from '../ws/registry.js';
+import { sendMessage, recentHistory, allowedChannels } from '../chat/service.js';
 import { getConfig } from '../config/store.js';
 import { selectRecipe, selectMonster, clearActivity, refreshActions } from '../actions/service.js';
 import { equipInstance, unequipSlot, getEquipment } from '../equipment/service.js';
@@ -606,8 +613,10 @@ export async function buildServer(): Promise<FastifyInstance> {
   io.use((socket, next) => {
     try {
       const cookies = app.parseCookie(socket.handshake.headers.cookie ?? '');
-      const payload = app.jwt.verify(cookies[ACCESS_COOKIE] ?? '') as { playerId: number };
-      (socket.data as { playerId: number }).playerId = payload.playerId;
+      const payload = app.jwt.verify(cookies[ACCESS_COOKIE] ?? '') as AuthTokenPayload;
+      const data = socket.data as { playerId: number; username: string };
+      data.playerId = payload.playerId;
+      data.username = payload.username;
       next();
     } catch {
       next(new Error('unauthorized'));
@@ -615,11 +624,35 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   io.on('connection', (socket) => {
-    const playerId = (socket.data as { playerId: number }).playerId;
+    const { playerId, username } = socket.data as { playerId: number; username: string };
     void socket.join(playerRoom(playerId));
-    socket.emit('hello', { playerId, online: onlineCount() });
+
+    // Chat (SPEC §11): join every channel room and immediately serve each
+    // channel's recent history from the ring buffer (fast, no DB on connect).
+    const channels = allowedChannels();
+    for (const channel of channels) void socket.join(chatRoom(channel));
+    socket.emit('hello', { playerId, online: onlineCount(), channels });
+    for (const channel of channels) {
+      socket.emit('chat:history', { channel, messages: recentHistory(channel) });
+    }
+
     socket.on('ping', (data: { t?: number } | undefined) => {
       socket.emit('pong', { t: data?.t ?? null });
+    });
+
+    // Incoming chat is genuinely real-time, so it arrives over the authenticated
+    // socket (not HTTP) and is broadcast to the channel room. Persistence +
+    // rate-limit happen in the service; errors are relayed only to the sender.
+    socket.on('chat:send', (data: { channel?: unknown; body?: unknown } | undefined) => {
+      const channel = typeof data?.channel === 'string' ? data.channel : '';
+      const body = typeof data?.body === 'string' ? data.body : '';
+      void sendMessage(playerId, username, channel, body, Date.now()).then((result) => {
+        if ('error' in result) {
+          socket.emit('chat:error', { channel, error: result.error });
+        } else {
+          broadcastToChannel(result.channel, 'chat:message', result);
+        }
+      });
     });
   });
 

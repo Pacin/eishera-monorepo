@@ -9,6 +9,7 @@ import { initConfig, getConfig, shutdownConfig } from './config/store.js';
 import { buildServer } from './http/server.js';
 import { ensureWorldState, readWorldState, startTickLoop, stopTickLoop } from './tick/loop.js';
 import { closeRealtime } from './ws/registry.js';
+import { chatBuffer } from './chat/buffer.js';
 
 async function main(): Promise<void> {
   console.log(`[eishera] server starting (port: ${env.port})`);
@@ -25,6 +26,11 @@ async function main(): Promise<void> {
     console.warn('[eishera] WARNING: JWT_SECRET not set — using insecure dev default.');
   }
 
+  // Warm the chat ring buffer from Postgres (cache, rebuildable — SPEC §11)
+  // before sockets connect, so the first client gets recent history instantly.
+  await chatBuffer.rebuild();
+  console.log('[eishera] chat ring buffer rebuilt from chat_messages');
+
   const app = await buildServer();
   await app.listen({ port: env.port, host: '0.0.0.0' });
   console.log(`[eishera] http + socket.io listening on :${env.port}`);
@@ -37,9 +43,7 @@ async function main(): Promise<void> {
     `[eishera] resuming world at tick #${resume.tick_number}, uptime=${resume.uptime_seconds}s`,
   );
   startTickLoop();
-  console.log(
-    `[eishera] ready — Phase 8 (world boss + boosts). Heartbeat every ${cfg.gameConfig.tick_seconds}s.`,
-  );
+  console.log(`[eishera] ready — Phase 9 (chat). Heartbeat every ${cfg.gameConfig.tick_seconds}s.`);
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`[eishera] received ${signal}, shutting down...`);

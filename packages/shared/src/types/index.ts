@@ -212,6 +212,21 @@ export interface BossView {
   joined?: boolean;
 }
 
+// ── Chat DTO (SPEC §11) ──────────────────────────────────────────────────────
+
+/** A persisted chat message, as broadcast over Socket.IO and served from the
+ *  per-channel ring buffer. `username` is denormalized for display (the
+ *  `chat_messages` row stores only `player_id`; the buffer/history carry the name). */
+export interface ChatMessage {
+  id: number;
+  channel: string;
+  player_id: number;
+  username: string;
+  body: string;
+  /** ISO timestamp. */
+  created_at: string;
+}
+
 /** Response body for register/login. The access + refresh tokens are delivered
  *  as httpOnly cookies (not in the body), so only the player is returned. */
 export interface AuthResponse {

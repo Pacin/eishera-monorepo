@@ -2,14 +2,15 @@
 
 A persistent browser-based game (PBBG) — server-authoritative, with **PostgreSQL as the single source of truth**. Built in ordered phases per [`SPEC.md`](./SPEC.md); starting content and balance live in [`SEED.md`](./SEED.md).
 
-> **Status: Phase 8 (world boss + global boosts).** A **world boss** is processed
-> inside the tick (per-participant damage rolls, **tier escalates** on each kill
-> with HP refill) over a **tick-based window** that **freezes on downtime**; when it
-> closes, rewards are distributed by total damage (gold share + a global-boost
-> grant). **Global boosts** (`global_boosts` catalog) granted from boss rewards,
-> events, or **token purchases** (`/boosts/buy`) write a runtime
-> `player_active_effects` row **and** a `global_boost_log` audit row, and now feed
-> the formula layer (incl. **XP** multipliers). Everything from Phases 4–7 still runs.
+> **Status: Phase 9 (chat).** Real-time **chat** over Socket.IO: a client sends a
+> `chat:send` event on the authenticated socket and the server **persists every
+> message** to `chat_messages` (the moderation record, SPEC §11), appends it to a
+> per-channel **ring buffer** (an in-memory cache, rebuildable from Postgres), and
+> **broadcasts** it to the channel room as `chat:message`. A newly connected socket
+> auto-joins the configured channels and is served each channel's **recent history**
+> from the buffer instantly. A per-player **rate limit** returns a definitive
+> `chat:error` (no silent drops). Channels, buffer size, rate limit, and max length
+> are live config (`game_config.chat`). Everything from Phases 4–8 still runs.
 
 ### HTTP / Realtime surface
 
@@ -43,7 +44,11 @@ A persistent browser-based game (PBBG) — server-authoritative, with **PostgreS
 | POST      | `/boss/join`              | access cookie + CSRF  | join the world boss (auto-spawns if none active)             |
 | GET       | `/boss`                   | access cookie         | boss state + your damage + ticks remaining                   |
 | POST      | `/boosts/buy`             | access cookie + CSRF  | buy a global boost with tokens (`{boostCode}`)               |
-| Socket.IO | (connection)              | access cookie         | hello + ping/pong; receives `battle` + `market:fill`         |
+| Socket.IO | (connection)              | access cookie         | `hello` + ping/pong; receives `battle`, `market:fill`        |
+| Socket.IO | `chat:send` (in)          | access cookie         | send a message (`{channel, body}`) — persisted + broadcast   |
+| Socket.IO | `chat:message` (out)      | access cookie         | a broadcast message for a joined channel                     |
+| Socket.IO | `chat:history` (out)      | access cookie         | recent history per channel, sent on connect (from buffer)    |
+| Socket.IO | `chat:error` (out)        | access cookie         | definitive send rejection (`rate_limited`, validation, …)    |
 
 Auth tokens are delivered as **httpOnly cookies** (never in the response body or
 `localStorage`, per SPEC §13). Realtime is **Socket.IO**, which authenticates the
@@ -204,6 +209,21 @@ Proves boss damage accrues per tick and the **tier escalates** on each kill, the
 the wall-clock gap), and on expiry **rewards are distributed by total damage**
 (gold share + a global-boost grant → `player_active_effects` + `global_boost_log`).
 It also buys a boost with tokens and confirms an **XP boost multiplies XP gains**.
+
+### Verify chat (Phase 9 acceptance)
+
+```bash
+pnpm --filter @eishera/server phase9:demo   # service layer (no socket)
+pnpm --filter @eishera/server sio:chat      # over the wire (server must be running)
+```
+
+`phase9:demo` proves every message **persists to `chat_messages`**, the **ring
+buffer** serves recent history and is **rebuildable from Postgres** after cache
+loss (capped at `buffer_size`, newest kept), the **rate limit** returns a
+definitive `rate_limited` error, and validation rejects unknown channels / empty /
+over-length bodies. `sio:chat` connects two sockets and confirms a `chat:send`
+**broadcasts** as `chat:message` to the other, a fresh socket gets **history on
+connect**, and flooding yields a `chat:error` (`rate_limited`).
 
 ## Database migrations
 
@@ -446,3 +466,38 @@ Docker, the server container applies pending migrations on startup
   shifts crafted-gear rarity; **`food_yield` applies to food output specifically**,
   `gather_yield` to all gathering. These are the spec's under-pinned points, resolved
   and documented.
+
+## Key decisions (Phase 9)
+
+- **Chat arrives over the socket, not HTTP.** The Phases 5/7 split sends mutations
+  over HTTP (cookie + CSRF) and pushes updates over Socket.IO — but chat is
+  _genuinely_ real-time, so an incoming message is a `chat:send` event on the
+  **already-authenticated socket** (handshake verifies the access cookie + JWT;
+  `SameSite=Strict` blocks cross-site handshakes). No separate CSRF token is needed
+  for the socket, matching the existing `ping` event. The server **persists first**
+  (the durable moderation record), then buffers, then broadcasts as `chat:message`.
+- **Postgres is the source of truth; the ring buffer is a pure cache.** Every
+  message is written to `chat_messages` (SPEC §11). The per-channel "last N" buffer
+  is in-memory only — rebuilt from Postgres on startup (and on demand), so losing it
+  loses nothing. It's **behind a `ChatBuffer` interface** so a later multi-process
+  move can swap an in-memory impl for a Redis-backed one without touching the chat
+  service or socket handlers (SPEC §2.1).
+- **Bounded channels = bounded memory.** Allowed channels come from config
+  (`global`, `trade`, `help`); a send to anything else is rejected. Arbitrary
+  channel names would let the buffer map grow unbounded. Sockets auto-join all
+  configured channels on connect and immediately receive each channel's history.
+- **Rate limit is ephemeral anti-spam infra, so it uses wall-clock** — a per-player
+  sliding window in memory (`rate_max` per `rate_window_seconds`). This is _not_ a
+  game timer: it does **not** freeze on downtime (unlike housing/boss live-clock
+  timers), and losing the map just resets the window. Exceeding it returns a
+  definitive `chat:error` (`rate_limited`) to the sender — never a silent drop (the
+  same "definitive rejection" principle the market uses, SPEC §10.4).
+- **Chat config is data, read via the snapshot's `raw` map** (`game_config.chat`),
+  the same pattern as `boss` / `potion_effects` / `boost_token_costs` — so channels,
+  buffer size, rate limit, and max length are **live-tunable** without a typed
+  `GameConfig` change. _Resolved gap:_ SPEC §11 requires a ring buffer "last N" and
+  rate-limiting but SEED.md gives no numbers; chosen starting values
+  (`buffer_size 50`, `rate_max 5 / 10s`, `max_length 500`) are documented here and
+  tunable like all other balance config. Flagged, not hidden.
+- **`username` is denormalized into the buffer/broadcast** for display; the
+  `chat_messages` row stores only `player_id`, so the rebuild query joins `players`.

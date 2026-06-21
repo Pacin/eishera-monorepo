@@ -20,9 +20,11 @@
     "phase6:demo": "dotenv -e ../../.env -- tsx src/scripts/phase6-demo.ts",
     "phase7:demo": "dotenv -e ../../.env -- tsx src/scripts/phase7-demo.ts",
     "phase8:demo": "dotenv -e ../../.env -- tsx src/scripts/phase8-demo.ts",
+    "phase9:demo": "dotenv -e ../../.env -- tsx src/scripts/phase9-demo.ts",
     "smoke": "dotenv -e ../../.env -- tsx src/scripts/phase2-smoke.ts",
     "sio:check": "dotenv -e ../../.env -- tsx src/scripts/sio-battle-check.ts",
-    "sio:market": "dotenv -e ../../.env -- tsx src/scripts/sio-market-check.ts"
+    "sio:market": "dotenv -e ../../.env -- tsx src/scripts/sio-market-check.ts",
+    "sio:chat": "dotenv -e ../../.env -- tsx src/scripts/sio-chat-check.ts"
   },
   "dependencies": {
     "@eishera/shared": "workspace:*",
