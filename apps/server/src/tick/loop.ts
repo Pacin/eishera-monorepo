@@ -14,6 +14,7 @@ import { liveClockStep } from './clock.js';
 import { processTransform } from '../actions/transform.js';
 import { processCombat } from '../combat/handler.js';
 import { completeUpgradeJobs } from '../housing/service.js';
+import { processBossTick } from '../boss/service.js';
 import { pushToPlayer } from '../ws/registry.js';
 import type { BattleResult } from '@eishera/shared';
 
@@ -29,6 +30,8 @@ export interface TickResult {
   outage: boolean;
   activeCount: number;
   housingCompleted: number;
+  bossDeaths: number;
+  bossExpired: boolean;
   battles: { playerId: number; result: BattleResult }[];
 }
 
@@ -114,7 +117,10 @@ export async function runTick(): Promise<TickResult> {
     }
     const activeCount = active.rows.length;
 
-    // 3. WORLD BOSS — Phase 8.
+    // 3. WORLD BOSS: per-participant damage + tier escalation; expire on the
+    //    tick-based window (which freezes on downtime since tick_number does).
+    const boss = await processBossTick(client, newTick, newUptime, snapshot);
+
     // 4. HOUSING COMPLETION: apply any upgrade jobs whose live-clock timer is due.
     //    Measured against uptime_seconds, so downtime freezes them (§5, §12.3).
     const housingCompleted = await completeUpgradeJobs(client, newUptime);
@@ -131,6 +137,8 @@ export async function runTick(): Promise<TickResult> {
       outage,
       activeCount,
       housingCompleted,
+      bossDeaths: boss.deaths,
+      bossExpired: boss.expired,
       battles,
     };
   });
@@ -161,6 +169,8 @@ async function tickOnce(): Promise<void> {
       `[tick] #${r.tickNumber} uptime=${r.uptimeSeconds}s active=${r.activeCount}` +
         (r.battles.length > 0 ? ` battles=${r.battles.length}` : '') +
         (r.housingCompleted > 0 ? ` housing=${r.housingCompleted}` : '') +
+        (r.bossDeaths > 0 ? ` boss_kills=${r.bossDeaths}` : '') +
+        (r.bossExpired ? ' boss_expired' : '') +
         (r.outage ? ' (outage — clock frozen)' : ''),
     );
   } catch (err) {

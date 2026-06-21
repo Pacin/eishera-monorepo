@@ -93,6 +93,29 @@ export const gameConfig: GameConfigSeed[] = [
     },
     description: 'potion code → { effect_type, magnitude, duration_seconds, stacking }',
   },
+  {
+    // World boss tuning (SPEC §9). Window is tick-based (freezes on downtime);
+    // damage uses combat_coeffs. On kill: tier++ and hp refills to max_hp.
+    key: 'boss',
+    value: {
+      window_minutes: 15,
+      max_hp: 5000,
+      reward_gold: 10000,
+      reward_boost: 'boss_fortune_2h',
+    },
+    description: 'world boss: { window_minutes, max_hp, reward_gold, reward_boost }',
+  },
+  {
+    // Token cost to buy each global boost (SPEC §8 token purchases).
+    key: 'boost_token_costs',
+    value: {
+      xp_surge_24h: 100,
+      harvest_boon_12h: 80,
+      battle_fury_1h: 50,
+      veterans_edge: 500,
+    },
+    description: 'global boost code → token cost (purchasable boosts only)',
+  },
 ];
 
 export const skills: Skill[] = [

@@ -2,38 +2,48 @@
 
 A persistent browser-based game (PBBG) — server-authoritative, with **PostgreSQL as the single source of truth**. Built in ordered phases per [`SPEC.md`](./SPEC.md); starting content and balance live in [`SEED.md`](./SEED.md).
 
-> **Status: Phase 6 (housing).** Players upgrade house features (`/housing/*`) —
-> an **instant resource spend** (not a tick action) that starts a job whose timer
-> runs on the **live clock**, so it **freezes on downtime**. Completion happens in
-> the tick (and lazily on view); **one upgrade at a time** is guaranteed by a DB
-> partial unique index; cancelling refunds `(1 − cancel_penalty)` of the
-> **`paid_snapshot`** (immune to live cost changes). Housing bonuses now feed the
-> formula layer — gather/food yield, rare-drop, craft-quality, and combat stats —
-> alongside equipment and potions. Combat (Phase 5) and transform (Phase 4) still
-> run. Builds on Phase 3's atomic tick + crash-resume.
+> **Status: Phase 8 (world boss + global boosts).** A **world boss** is processed
+> inside the tick (per-participant damage rolls, **tier escalates** on each kill
+> with HP refill) over a **tick-based window** that **freezes on downtime**; when it
+> closes, rewards are distributed by total damage (gold share + a global-boost
+> grant). **Global boosts** (`global_boosts` catalog) granted from boss rewards,
+> events, or **token purchases** (`/boosts/buy`) write a runtime
+> `player_active_effects` row **and** a `global_boost_log` audit row, and now feed
+> the formula layer (incl. **XP** multipliers). Everything from Phases 4–7 still runs.
 
 ### HTTP / Realtime surface
 
-| Method    | Route                | Auth                  | Purpose                                                   |
-| --------- | -------------------- | --------------------- | --------------------------------------------------------- |
-| GET       | `/health`            | —                     | liveness probe                                            |
-| GET       | `/auth/csrf`         | —                     | issue a CSRF token (+ sets the secret cookie)             |
-| POST      | `/auth/register`     | —                     | create account → sets cookies, returns `{ player }` (201) |
-| POST      | `/auth/login`        | —                     | sets cookies, returns `{ player }` (200) / 401            |
-| POST      | `/auth/refresh`      | refresh cookie + CSRF | rotate refresh token, reissue access cookie               |
-| POST      | `/auth/logout`       | CSRF                  | revoke refresh token, clear cookies                       |
-| GET       | `/me`                | access cookie         | current player summary                                    |
-| POST      | `/actions/select`    | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)   |
-| POST      | `/actions/battle`    | access cookie + CSRF  | choose a monster to fight (`{ monsterId }`)               |
-| POST      | `/actions/refresh`   | access cookie + CSRF  | refill the action bar to `max_actions`                    |
-| POST      | `/actions/consume`   | access cookie + CSRF  | drink a potion (`{ itemCode }`) → active effect           |
-| POST      | `/equipment/equip`   | access cookie + CSRF  | equip an owned instance (`{ instanceId }`)                |
-| POST      | `/equipment/unequip` | access cookie + CSRF  | clear a slot (`{ slot }`)                                 |
-| GET       | `/equipment`         | access cookie         | equipped items + current effective combat stats           |
-| POST      | `/housing/upgrade`   | access cookie + CSRF  | start a feature upgrade (`{ featureId }`)                 |
-| POST      | `/housing/cancel`    | access cookie + CSRF  | cancel the active upgrade → partial refund                |
-| GET       | `/housing`           | access cookie         | features, levels, next cost, active job (lazy-completes)  |
-| Socket.IO | (connection)         | access cookie         | hello + ping/pong; receives `battle` results              |
+| Method    | Route                     | Auth                  | Purpose                                                      |
+| --------- | ------------------------- | --------------------- | ------------------------------------------------------------ |
+| GET       | `/health`                 | —                     | liveness probe                                               |
+| GET       | `/auth/csrf`              | —                     | issue a CSRF token (+ sets the secret cookie)                |
+| POST      | `/auth/register`          | —                     | create account → sets cookies, returns `{ player }` (201)    |
+| POST      | `/auth/login`             | —                     | sets cookies, returns `{ player }` (200) / 401               |
+| POST      | `/auth/refresh`           | refresh cookie + CSRF | rotate refresh token, reissue access cookie                  |
+| POST      | `/auth/logout`            | CSRF                  | revoke refresh token, clear cookies                          |
+| GET       | `/me`                     | access cookie         | current player summary                                       |
+| POST      | `/actions/select`         | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)      |
+| POST      | `/actions/battle`         | access cookie + CSRF  | choose a monster to fight (`{ monsterId }`)                  |
+| POST      | `/actions/refresh`        | access cookie + CSRF  | refill the action bar to `max_actions`                       |
+| POST      | `/actions/consume`        | access cookie + CSRF  | drink a potion (`{ itemCode }`) → active effect              |
+| POST      | `/equipment/equip`        | access cookie + CSRF  | equip an owned instance (`{ instanceId }`)                   |
+| POST      | `/equipment/unequip`      | access cookie + CSRF  | clear a slot (`{ slot }`)                                    |
+| GET       | `/equipment`              | access cookie         | equipped items + current effective combat stats              |
+| POST      | `/housing/upgrade`        | access cookie + CSRF  | start a feature upgrade (`{ featureId }`)                    |
+| POST      | `/housing/cancel`         | access cookie + CSRF  | cancel the active upgrade → partial refund                   |
+| GET       | `/housing`                | access cookie         | features, levels, next cost, active job (lazy-completes)     |
+| POST      | `/market/orders`          | access cookie + CSRF  | place a buy/sell order (`{side,item_id,price,qty,idem_key}`) |
+| POST      | `/market/orders/cancel`   | access cookie + CSRF  | cancel a resting order → release escrow                      |
+| GET       | `/market/book`            | access cookie         | aggregated order book for `?item_id=`                        |
+| POST      | `/market/listings`        | access cookie + CSRF  | list an instance (`{instance_id,price,idem_key}`)            |
+| POST      | `/market/listings/buy`    | access cookie + CSRF  | buy a listing (`{listing_id}`) — single-buyer                |
+| POST      | `/market/listings/cancel` | access cookie + CSRF  | cancel your listing                                          |
+| GET       | `/market/listings`        | access cookie         | active listings for `?item_id=`                              |
+| POST      | `/salvage`                | access cookie + CSRF  | salvage an instance (`{instance_id}`) → materials            |
+| POST      | `/boss/join`              | access cookie + CSRF  | join the world boss (auto-spawns if none active)             |
+| GET       | `/boss`                   | access cookie         | boss state + your damage + ticks remaining                   |
+| POST      | `/boosts/buy`             | access cookie + CSRF  | buy a global boost with tokens (`{boostCode}`)               |
+| Socket.IO | (connection)              | access cookie         | hello + ping/pong; receives `battle` + `market:fill`         |
 
 Auth tokens are delivered as **httpOnly cookies** (never in the response body or
 `localStorage`, per SPEC §13). Realtime is **Socket.IO**, which authenticates the
@@ -168,6 +178,32 @@ only one interval, so a job past its wall-clock deadline still doesn't complete
 until the live clock reaches it), and **cancel refunds `(1 − cancel_penalty)` of
 the `paid_snapshot`** even after the cost config changes live — plus that housing
 bonuses feed yield / rare-drop / craft-quality / combat stats.
+
+### Verify market + salvage (Phase 7 acceptance)
+
+```bash
+pnpm --filter @eishera/server phase7:demo
+```
+
+Proves order-book matching settles with escrow (no overspend), the **concurrency
+test** (two buys for one remaining unit → exactly one fills, the unit is never
+transferred twice), **idempotency** (a repeated `idem_key` doesn't double-charge),
+an instance listing is **bought by at most one buyer**, and salvage deletes the
+instance while returning quality-scaled materials. `pnpm --filter @eishera/server
+sio:market` additionally checks the HTTP order → **`market:fill` Socket.IO push** to
+the resting order's owner.
+
+### Verify world boss + boosts (Phase 8 acceptance)
+
+```bash
+pnpm --filter @eishera/server phase8:demo
+```
+
+Proves boss damage accrues per tick and the **tier escalates** on each kill, the
+**window freezes on downtime** (an outage tick advances it by one tick, never by
+the wall-clock gap), and on expiry **rewards are distributed by total damage**
+(gold share + a global-boost grant → `player_active_effects` + `global_boost_log`).
+It also buys a boost with tokens and confirms an **XP boost multiplies XP gains**.
 
 ## Database migrations
 
@@ -343,7 +379,48 @@ Docker, the server container applies pending migrations on startup
   with `rarity_luck_shift × effective LUCK`; stackable loot drops at its flat
   chance, unaffected by LUCK.
 
-## Key decisions (Phase 6)
+## Key decisions (Phase 7)
+
+- **HTTP commands, Socket.IO fills.** Placing/cancelling orders, listing, buying,
+  and salvaging are HTTP (with `idem_key` for idempotent retries); a `market:fill`
+  is **pushed over Socket.IO** to the resting (maker) order's owner. The market's
+  correctness lives in the server queue + Postgres, not the transport.
+- **Single sequential FIFO queue** (`market/queue.ts`) serializes order-book
+  operations → deterministic "first in, first processed". It's behind a
+  `MarketQueue` interface so a multi-process build can swap in a Redis sequencer
+  without touching the matching logic.
+- **Escrow at placement.** A sell reserves its items, a buy reserves `price×qty`
+  gold, up front — preventing overspend and phantom liquidity. Fills settle at the
+  **maker (resting) price**; a taker buy that fills below its limit is refunded the
+  difference; cancel returns the unfilled escrow. (This is how "debit at fill" is
+  realized safely.)
+- **Listings use row-locking, not the queue.** Each listing is one specific row, so
+  `SELECT … FOR UPDATE` gives the single-buyer guarantee directly; the second buyer
+  gets a definitive `no_longer_available`. Buy is naturally idempotent via the
+  terminal `sold` state + ownership.
+- **Salvage scales by quality** = the average of the instance's per-stat rolls, ×
+  the item's `salvage_yield`, then the row is **deleted** (the sink that bounds
+  `item_instances` growth).
+
+## Key decisions (Phase 8)
+
+- **Boss runs inside the tick transaction** (a separate block after actions),
+  written durably every tick — at most one in-flight tick is ever lost (§2/§9).
+- **Tick-based window → free downtime freeze.** `started_tick..ends_tick` measure
+  elapsed _ticks_, and ticks only happen while the server is up, so a long outage
+  contributes zero ticks — the boss neither expires nor advances during downtime.
+- **`max_hp` constant, tier escalates per kill** (HP refills) — the spec's
+  "tier++, hp = max_hp; the event continues". Overkill rolls into further tiers.
+- **Boss damage uses base combat stats** bulk-fetched per tick (the spec's
+  "microsecond-scale per-player roll"), not a full effective-stat recompute per
+  participant per tick.
+- **Auto-spawn on join** — no admin role in v1, so the first joiner spawns the boss;
+  bosses appear on demand. (A scheduled spawner is a later refinement.)
+- **One grant path for all boosts.** `grantGlobalBoost` (used by boss rewards,
+  token purchases, events) always writes both the runtime `player_active_effects`
+  row _and_ the `global_boost_log` audit row; re-granting refreshes. Boost effects
+  feed the existing formula layer — `combat_all`, `gather_yield`, `rare_drop`, and
+  **`xp`** (now multiplying XP gains in transform + combat).
 
 - **Upgrade start is atomic + instant** (not a tick action): check max/funds →
   deduct gold + resources → store `paid_snapshot` → insert the job, all in one

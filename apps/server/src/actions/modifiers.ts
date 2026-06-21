@@ -18,8 +18,6 @@ export interface ProductionModifiers {
   craftQuality: number;
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 export async function computeProductionModifiers(
   client: PoolClient,
   playerId: number,

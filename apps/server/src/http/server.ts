@@ -41,7 +41,12 @@ import { equipInstance, unequipSlot, getEquipment } from '../equipment/service.j
 import { effectiveStatsForPlayer } from '../combat/stats.js';
 import { consumePotion } from '../effects/service.js';
 import { startUpgrade, cancelUpgrade, getHousing } from '../housing/service.js';
-import type { AuthResponse, AuthTokenPayload } from '@eishera/shared';
+import { placeOrder, cancelOrder, getBook } from '../market/orders.js';
+import { listInstance, buyListing, cancelListing, getListings } from '../market/listings.js';
+import { salvageInstance } from '../market/salvage.js';
+import { joinBoss, getBoss } from '../boss/service.js';
+import { buyBoost } from '../effects/boosts.js';
+import type { AuthResponse, AuthTokenPayload, MarketSide } from '@eishera/shared';
 
 const credentialsSchema = {
   body: {
@@ -365,6 +370,228 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/housing', { preHandler: [app.authenticate] }, async (request) => {
     return getHousing(request.user.playerId, getConfig());
   });
+
+  // ── Market: fungible order book ─────────────────────────────────────────────
+  const mutate = { onRequest: app.csrfProtection, preHandler: [app.authenticate] };
+
+  app.post(
+    '/market/orders',
+    {
+      ...mutate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['side', 'item_id', 'price', 'qty', 'idem_key'],
+          additionalProperties: false,
+          properties: {
+            side: { type: 'string', enum: ['buy', 'sell'] },
+            item_id: { type: 'integer' },
+            price: { type: 'integer', minimum: 1 },
+            qty: { type: 'integer', minimum: 1 },
+            idem_key: { type: 'string', minLength: 1, maxLength: 128 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const b = request.body as {
+        side: MarketSide;
+        item_id: number;
+        price: number;
+        qty: number;
+        idem_key: string;
+      };
+      const result = await placeOrder(
+        request.user.playerId,
+        b.side,
+        b.item_id,
+        b.price,
+        b.qty,
+        b.idem_key,
+      );
+      if ('error' in result) return reply.code(400).send(result);
+      return result;
+    },
+  );
+
+  app.post(
+    '/market/orders/cancel',
+    {
+      ...mutate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['order_id'],
+          additionalProperties: false,
+          properties: { order_id: { type: 'integer' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { order_id } = request.body as { order_id: number };
+      const result = await cancelOrder(request.user.playerId, order_id);
+      if ('error' in result)
+        return reply.code(result.error === 'not_found' ? 404 : 400).send(result);
+      return result;
+    },
+  );
+
+  app.get(
+    '/market/book',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        querystring: {
+          type: 'object',
+          required: ['item_id'],
+          properties: { item_id: { type: 'integer' } },
+        },
+      },
+    },
+    async (request) => getBook((request.query as { item_id: number }).item_id),
+  );
+
+  // ── Market: instance listings ───────────────────────────────────────────────
+  app.post(
+    '/market/listings',
+    {
+      ...mutate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['instance_id', 'price', 'idem_key'],
+          additionalProperties: false,
+          properties: {
+            instance_id: { type: 'integer' },
+            price: { type: 'integer', minimum: 1 },
+            idem_key: { type: 'string', minLength: 1, maxLength: 128 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const b = request.body as { instance_id: number; price: number; idem_key: string };
+      const result = await listInstance(request.user.playerId, b.instance_id, b.price, b.idem_key);
+      if ('error' in result) return reply.code(400).send(result);
+      return result;
+    },
+  );
+
+  app.post(
+    '/market/listings/buy',
+    {
+      ...mutate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['listing_id'],
+          additionalProperties: false,
+          properties: { listing_id: { type: 'integer' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { listing_id } = request.body as { listing_id: number };
+      const result = await buyListing(request.user.playerId, listing_id);
+      if ('error' in result) {
+        const code =
+          result.error === 'not_found' ? 404 : result.error === 'no_longer_available' ? 409 : 400;
+        return reply.code(code).send(result);
+      }
+      return result;
+    },
+  );
+
+  app.post(
+    '/market/listings/cancel',
+    {
+      ...mutate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['listing_id'],
+          additionalProperties: false,
+          properties: { listing_id: { type: 'integer' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { listing_id } = request.body as { listing_id: number };
+      const result = await cancelListing(request.user.playerId, listing_id);
+      if ('error' in result)
+        return reply.code(result.error === 'not_found' ? 404 : 400).send(result);
+      return result;
+    },
+  );
+
+  app.get(
+    '/market/listings',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        querystring: {
+          type: 'object',
+          required: ['item_id'],
+          properties: { item_id: { type: 'integer' } },
+        },
+      },
+    },
+    async (request) => getListings((request.query as { item_id: number }).item_id, getConfig()),
+  );
+
+  // ── Salvage (instance sink) ─────────────────────────────────────────────────
+  app.post(
+    '/salvage',
+    {
+      ...mutate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['instance_id'],
+          additionalProperties: false,
+          properties: { instance_id: { type: 'integer' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { instance_id } = request.body as { instance_id: number };
+      const result = await salvageInstance(request.user.playerId, instance_id, getConfig());
+      if ('error' in result) {
+        return reply.code(result.error === 'unknown_instance' ? 404 : 400).send(result);
+      }
+      return result;
+    },
+  );
+
+  // ── World boss + global boosts ──────────────────────────────────────────────
+  app.post('/boss/join', mutate, async (request) => joinBoss(request.user.playerId, getConfig()));
+
+  app.get('/boss', { preHandler: [app.authenticate] }, async (request) =>
+    getBoss(request.user.playerId),
+  );
+
+  app.post(
+    '/boosts/buy',
+    {
+      ...mutate,
+      schema: {
+        body: {
+          type: 'object',
+          required: ['boostCode'],
+          additionalProperties: false,
+          properties: { boostCode: { type: 'string' } },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { boostCode } = request.body as { boostCode: string };
+      const result = await buyBoost(request.user.playerId, boostCode, getConfig());
+      if ('error' in result) {
+        return reply.code(result.error === 'unknown_boost' ? 404 : 400).send(result);
+      }
+      return result;
+    },
+  );
 
   // ── Socket.IO realtime ──────────────────────────────────────────────────────
   // Attached to Fastify's underlying HTTP server (same port). Same-origin in

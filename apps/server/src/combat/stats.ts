@@ -13,8 +13,6 @@ export const COMBAT_STATS = ['str', 'vit', 'def', 'eva', 'dex', 'luck'] as const
 export type CombatStat = (typeof COMBAT_STATS)[number];
 export type EffectiveStats = Record<CombatStat, number>;
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 export async function computeEffectiveStats(
   client: PoolClient,
   playerId: number,

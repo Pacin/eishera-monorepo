@@ -16,6 +16,7 @@ import type { Recipe } from '@eishera/shared';
 import type { ConfigSnapshot } from '../config/snapshot.js';
 import { rollRarity, rollStats, scaleQty } from './rolls.js';
 import { computeProductionModifiers } from './modifiers.js';
+import { xpMultiplier } from '../effects/boosts.js';
 
 export type TransformResult = 'processed' | 'stalled';
 
@@ -112,8 +113,11 @@ export async function processTransform(
     }
   }
 
-  // XP + level-ups for this skill.
-  const gained = gainXp(level, xp, recipe.base_xp, g.xp_curve);
+  // XP + level-ups for this skill (xp boosts multiply the gain).
+  const xpAmount = Math.round(
+    recipe.base_xp * (await xpMultiplier(client, playerId, uptimeSeconds)),
+  );
+  const gained = gainXp(level, xp, xpAmount, g.xp_curve);
   await client.query(
     'UPDATE player_skills SET level = $3, xp = $4 WHERE player_id = $1 AND skill_id = $2',
     [playerId, skillId, gained.level, gained.xp],

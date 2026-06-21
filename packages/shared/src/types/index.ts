@@ -147,6 +147,71 @@ export interface AuthTokenPayload {
   username: string;
 }
 
+// ── Market DTOs (SPEC §10) ───────────────────────────────────────────────────
+
+export type MarketSide = 'buy' | 'sell';
+export type OrderStatus = 'open' | 'partial' | 'filled' | 'cancelled';
+
+export interface Fill {
+  qty: number;
+  price: number;
+  counter_order_id: number;
+}
+
+/** Result of placing a fungible order-book order. */
+export interface OrderResult {
+  order_id: number;
+  status: OrderStatus;
+  filled_qty: number;
+  fills: Fill[];
+  /** Gold returned to a taker buy that filled below its limit price. */
+  refunded_gold: number;
+}
+
+export interface BookLevel {
+  price: number;
+  qty: number;
+}
+
+/** Aggregated order book for one item. */
+export interface OrderBook {
+  item: string;
+  buys: BookLevel[];
+  sells: BookLevel[];
+}
+
+/** A live auction-style listing for a unique equipment instance. */
+export interface Listing {
+  id: number;
+  instance_id: number;
+  item: string;
+  rarity: number;
+  rolls: Record<string, number>;
+  price: number;
+  seller_id: number;
+}
+
+export interface SalvageResult {
+  instance_id: number;
+  materials: Record<string, number>;
+}
+
+// ── World boss DTO (SPEC §9) ─────────────────────────────────────────────────
+
+export interface BossView {
+  active: boolean;
+  tier?: number;
+  hp?: number;
+  max_hp?: number;
+  /** Tick when the event window closes (tick-based, freezes on downtime). */
+  ends_tick?: number;
+  current_tick?: number;
+  ticks_remaining?: number;
+  participants?: number;
+  your_damage?: number;
+  joined?: boolean;
+}
+
 /** Response body for register/login. The access + refresh tokens are delivered
  *  as httpOnly cookies (not in the body), so only the player is returned. */
 export interface AuthResponse {

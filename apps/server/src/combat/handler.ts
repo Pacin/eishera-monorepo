@@ -14,6 +14,7 @@ import type { ConfigSnapshot } from '../config/snapshot.js';
 import { computeEffectiveStats, COMBAT_STATS, type CombatStat } from './stats.js';
 import { simulateDuel } from './duel.js';
 import { rollRarity, rollStats } from '../actions/rolls.js';
+import { xpMultiplier } from '../effects/boosts.js';
 
 type Rng = () => number;
 const randInt = (min: number, max: number, rng: Rng): number =>
@@ -39,7 +40,7 @@ export async function processCombat(
   const loot: LootDrop[] = [];
 
   if (duel.won) {
-    xpGain = monster.xp;
+    xpGain = Math.round(monster.xp * (await xpMultiplier(client, playerId, uptimeSeconds)));
 
     // Combat XP + level-ups → base-stat points per stat_per_level.
     const combatSkill = [...cfg.skills.values()].find((s) => s.code === 'combat');
