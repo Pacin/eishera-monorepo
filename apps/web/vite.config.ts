@@ -12,9 +12,15 @@ export default defineConfig({
     proxy: {
       '/auth': { target: API_TARGET, changeOrigin: true },
       '/me': { target: API_TARGET, changeOrigin: true },
+      '/config': { target: API_TARGET, changeOrigin: true },
       '/health': { target: API_TARGET, changeOrigin: true },
       '/actions': { target: API_TARGET, changeOrigin: true },
       '/equipment': { target: API_TARGET, changeOrigin: true },
+      '/housing': { target: API_TARGET, changeOrigin: true },
+      '/market': { target: API_TARGET, changeOrigin: true },
+      '/salvage': { target: API_TARGET, changeOrigin: true },
+      '/boss': { target: API_TARGET, changeOrigin: true },
+      '/boosts': { target: API_TARGET, changeOrigin: true },
       // Socket.IO (HTTP polling handshake + websocket upgrade).
       '/socket.io': { target: API_TARGET, changeOrigin: true, ws: true },
     },

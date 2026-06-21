@@ -105,6 +105,90 @@ export interface GlobalBoost {
   default_source: BoostSource;
 }
 
+// ── Catalog DTO (GET /config) ────────────────────────────────────────────────
+// A read-only projection of the config snapshot the client needs to render
+// content and run the shared formulas (smooth prediction, SPEC §13). It carries
+// only display + the formula constants — never RNG or authoritative state.
+
+export interface CatalogActivity {
+  id: number;
+  code: string;
+  name: string;
+  skill_id: number;
+  archetype: ActivityArchetype;
+}
+
+export interface CatalogRecipe {
+  id: number;
+  code: string;
+  name: string;
+  activity_id: number;
+  req_level: number;
+  inputs: { item: string; qty: number }[];
+  outputs: { item: string; qty: number; chance?: number }[];
+}
+
+export interface CatalogMonster {
+  id: number;
+  name: string;
+  tier: number;
+  hp: number;
+  attack: number;
+  xp: number;
+  gold_min: number;
+  gold_max: number;
+}
+
+export interface CatalogItem {
+  id: number;
+  code: string;
+  name: string;
+  equip_slot: EquipSlot | null;
+  tradable: boolean;
+}
+
+export interface CatalogHousing {
+  id: number;
+  code: string;
+  name: string;
+  bonus_type: string;
+  max_level: number;
+}
+
+export interface CatalogRarity {
+  tier: number;
+  name: string;
+  color: string;
+}
+
+export interface CatalogBoost {
+  code: string;
+  name: string;
+  effect_type: string;
+  magnitude: number;
+  duration_seconds: number | null;
+  /** Token cost if purchasable, else null. */
+  cost: number | null;
+}
+
+export interface GameCatalog {
+  /** Formula constants the client reuses for smooth prediction (SPEC §8/§13). */
+  tick_seconds: number;
+  xp_curve: { B: number; p: number };
+  xp_per_action: number;
+  yield_slope: number;
+  rare: { base: number; step: number; cap: number };
+  chat: { channels: string[]; max_length: number };
+  skills: Skill[];
+  activities: CatalogActivity[];
+  recipes: CatalogRecipe[];
+  monsters: CatalogMonster[];
+  items: CatalogItem[];
+  housing: CatalogHousing[];
+  rarities: CatalogRarity[];
+  boosts: CatalogBoost[];
+}
+
 // ── Player-facing DTOs ───────────────────────────────────────────────────────
 
 /** The six base combat stats (SPEC §3.3). */
@@ -139,6 +223,9 @@ export interface PlayerSummary {
   stats: PlayerStats;
   skills: SkillProgress[];
   housing: HousingProgress[];
+  /** The current selection (exactly one set, or both null = idle). SPEC §3.3. */
+  active_recipe_id: number | null;
+  active_monster_id: number | null;
 }
 
 /** JWT claims carried in the auth token. */

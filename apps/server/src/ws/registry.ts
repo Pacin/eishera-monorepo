@@ -30,6 +30,24 @@ export function onlineCount(): number {
   return io?.engine.clientsCount ?? 0;
 }
 
+/** True if the player has at least one socket connected (in their room). Lets the
+ *  tick loop skip building/pushing updates for players nobody is watching. */
+export function isPlayerOnline(playerId: number): boolean {
+  const room = io?.sockets.adapter.rooms.get(playerRoom(playerId));
+  return room !== undefined && room.size > 0;
+}
+
+/** All currently-connected player IDs (one entry per player, deduped via rooms). */
+export function onlinePlayerIds(): number[] {
+  const rooms = io?.sockets.adapter.rooms;
+  if (!rooms) return [];
+  const ids: number[] = [];
+  for (const room of rooms.keys()) {
+    if (room.startsWith('player:')) ids.push(Number(room.slice('player:'.length)));
+  }
+  return ids;
+}
+
 /** Close the realtime server (graceful shutdown). */
 export async function closeRealtime(): Promise<void> {
   if (io) {

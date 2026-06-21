@@ -43,7 +43,9 @@ async function main(): Promise<void> {
     `[eishera] resuming world at tick #${resume.tick_number}, uptime=${resume.uptime_seconds}s`,
   );
   startTickLoop();
-  console.log(`[eishera] ready — Phase 9 (chat). Heartbeat every ${cfg.gameConfig.tick_seconds}s.`);
+  console.log(
+    `[eishera] ready — Phase 10 (frontend). Heartbeat every ${cfg.gameConfig.tick_seconds}s.`,
+  );
 
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`[eishera] received ${signal}, shutting down...`);

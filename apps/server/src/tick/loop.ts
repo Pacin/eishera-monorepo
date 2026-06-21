@@ -15,7 +15,10 @@ import { processTransform } from '../actions/transform.js';
 import { processCombat } from '../combat/handler.js';
 import { completeUpgradeJobs } from '../housing/service.js';
 import { processBossTick } from '../boss/service.js';
-import { pushToPlayer } from '../ws/registry.js';
+import { pushToPlayer, isPlayerOnline, onlinePlayerIds } from '../ws/registry.js';
+import { getPlayerSummaries } from '../players/service.js';
+import { getBoss } from '../boss/service.js';
+import { getHousing } from '../housing/service.js';
 import type { BattleResult } from '@eishera/shared';
 
 export interface WorldState {
@@ -29,9 +32,16 @@ export interface TickResult {
   uptimeSeconds: number;
   outage: boolean;
   activeCount: number;
+  /** Active-set player IDs processed this tick (their state changed → push). */
+  activePlayerIds: number[];
   housingCompleted: number;
+  /** Players whose housing upgrade completed this tick (→ housing:changed push). */
+  housingCompletedPlayers: number[];
   bossDeaths: number;
   bossExpired: boolean;
+  bossActive: boolean;
+  /** Boss participant IDs (→ boss:update push while active). */
+  bossParticipants: number[];
   battles: { playerId: number; result: BattleResult }[];
 }
 
@@ -92,6 +102,7 @@ export async function runTick(): Promise<TickResult> {
     //    a transform recipe (Phase 4) or a battle (Phase 5). Exactly one target
     //    is set per player (DB CHECK). All writes are part of this one tick txn.
     const battles: { playerId: number; result: BattleResult }[] = [];
+    const activePlayerIds: number[] = [];
     const active = await client.query(
       `SELECT id, active_recipe_id, active_monster_id FROM players
         WHERE actions_remaining > 0
@@ -104,6 +115,7 @@ export async function runTick(): Promise<TickResult> {
       active_monster_id: number | null;
     }[]) {
       const playerId = Number(r.id);
+      activePlayerIds.push(playerId);
       if (r.active_recipe_id !== null) {
         const recipe = snapshot.recipes.get(r.active_recipe_id);
         if (recipe) await processTransform(client, playerId, recipe, snapshot, newUptime);
@@ -123,7 +135,7 @@ export async function runTick(): Promise<TickResult> {
 
     // 4. HOUSING COMPLETION: apply any upgrade jobs whose live-clock timer is due.
     //    Measured against uptime_seconds, so downtime freezes them (§5, §12.3).
-    const housingCompleted = await completeUpgradeJobs(client, newUptime);
+    const housingCompletedPlayers = await completeUpgradeJobs(client, newUptime);
 
     // 5. Advance tick_number + live clock. last_tick_at = the now() we just read.
     await client.query(
@@ -136,18 +148,49 @@ export async function runTick(): Promise<TickResult> {
       uptimeSeconds: newUptime,
       outage,
       activeCount,
-      housingCompleted,
+      activePlayerIds,
+      housingCompleted: housingCompletedPlayers.length,
+      housingCompletedPlayers,
       bossDeaths: boss.deaths,
       bossExpired: boss.expired,
+      bossActive: boss.active,
+      bossParticipants: boss.participants,
       battles,
     };
   });
 }
 
-/** Push each battle's result to the player's room (after the tick commits). */
-function pushBattleResults(battles: { playerId: number; result: BattleResult }[]): void {
-  for (const b of battles) {
-    pushToPlayer(b.playerId, 'battle', b.result);
+/**
+ * Push live updates to clients AFTER the tick commits (never inside the txn).
+ * This replaces client HTTP polling (SPEC §13): the per-tick player summary,
+ * battle results, housing completions, and boss state all arrive over Socket.IO.
+ * Work is bounded to ONLINE players — nobody is watching the rest.
+ */
+async function pushTickUpdates(r: TickResult): Promise<void> {
+  for (const b of r.battles) pushToPlayer(b.playerId, 'battle', b.result);
+  const cfg = getConfig();
+
+  // Per-tick player summary to each online active player (gold/xp/actions moved).
+  // Boss participants also get one on expiry, since reward gold just landed.
+  const summaryIds = new Set(r.activePlayerIds.filter(isPlayerOnline));
+  if (r.bossExpired) for (const p of r.bossParticipants) if (isPlayerOnline(p)) summaryIds.add(p);
+  if (summaryIds.size > 0) {
+    const summaries = await getPlayerSummaries([...summaryIds]);
+    for (const [playerId, summary] of summaries) pushToPlayer(playerId, 'player:update', summary);
+  }
+
+  // Housing changes only on completion → push the fresh view (no client GET).
+  for (const playerId of r.housingCompletedPlayers) {
+    if (isPlayerOnline(playerId))
+      pushToPlayer(playerId, 'housing:update', await getHousing(playerId, cfg));
+  }
+
+  // Boss state to ALL online players while a boss exists (live HP/timer/your_damage
+  // and discovery of a newly-spawned boss), §9/§13 — no client polling/GET.
+  if (r.bossActive) {
+    for (const playerId of onlinePlayerIds()) {
+      pushToPlayer(playerId, 'boss:update', await getBoss(playerId));
+    }
   }
 }
 
@@ -164,7 +207,7 @@ async function tickOnce(): Promise<void> {
   try {
     const r = await runTick();
     // Side effects (websocket pushes) happen AFTER the tick commits.
-    pushBattleResults(r.battles);
+    await pushTickUpdates(r);
     console.log(
       `[tick] #${r.tickNumber} uptime=${r.uptimeSeconds}s active=${r.activeCount}` +
         (r.battles.length > 0 ? ` battles=${r.battles.length}` : '') +

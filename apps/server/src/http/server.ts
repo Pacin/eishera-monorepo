@@ -43,6 +43,7 @@ import {
 } from '../ws/registry.js';
 import { sendMessage, recentHistory, allowedChannels } from '../chat/service.js';
 import { getConfig } from '../config/store.js';
+import { buildCatalog } from '../config/catalog.js';
 import { selectRecipe, selectMonster, clearActivity, refreshActions } from '../actions/service.js';
 import { equipInstance, unequipSlot, getEquipment } from '../equipment/service.js';
 import { effectiveStatsForPlayer } from '../combat/stats.js';
@@ -192,6 +193,10 @@ export async function buildServer(): Promise<FastifyInstance> {
     clearAuthCookies(reply);
     return reply.send({ ok: true });
   });
+
+  // Read-only content catalog + client formula constants (SPEC §13). Auth-gated
+  // for consistency; carries no per-player or authoritative state.
+  app.get('/config', { preHandler: [app.authenticate] }, async () => buildCatalog());
 
   app.get('/me', { preHandler: [app.authenticate] }, async (request, reply) => {
     const player = await getPlayerSummary(request.user.playerId);
@@ -370,7 +375,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     async (request, reply) => {
       const result = await cancelUpgrade(request.user.playerId, getConfig());
       if ('error' in result) return reply.code(400).send(result);
-      return result;
+      // Include the fresh housing view so the client can update without a GET.
+      const view = await getHousing(request.user.playerId, getConfig());
+      return { ...result, view };
     },
   );
 
@@ -635,6 +642,18 @@ export async function buildServer(): Promise<FastifyInstance> {
     for (const channel of channels) {
       socket.emit('chat:history', { channel, messages: recentHistory(channel) });
     }
+
+    // Bootstrap (SPEC §13): deliver the player summary, content catalog, and
+    // housing/boss state over the socket so the SPA needs no HTTP GETs to load.
+    void (async () => {
+      const cfg = getConfig();
+      const [me, housing, boss] = await Promise.all([
+        getPlayerSummary(playerId),
+        getHousing(playerId, cfg),
+        getBoss(playerId),
+      ]);
+      socket.emit('sync', { me, catalog: buildCatalog(), housing, boss });
+    })();
 
     socket.on('ping', (data: { t?: number } | undefined) => {
       socket.emit('pong', { t: data?.t ?? null });

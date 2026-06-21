@@ -1,11 +1,31 @@
-// Phase 0 placeholder. The real UI (server-authoritative values rendered smoothly
-// via @eishera/shared formulas, live websocket updates) arrives in Phase 10.
+// Root. Gates on auth status: a loading splash, the auth screen for anon, or the
+// game dashboard once authenticated. State lives in GameProvider.
+
+import './styles.css';
+import { GameProvider, useGame } from './useGame.js';
+import { Auth } from './components/Auth.js';
+import { Dashboard } from './components/Dashboard.js';
+
+function Root() {
+  const { status } = useGame();
+  if (status === 'loading') {
+    return (
+      <main className="auth">
+        <div className="panel">
+          <img className="sigil" src="/assets/sigil.svg" alt="" />
+          <h1>Eishera</h1>
+          <p className="muted">Loading…</p>
+        </div>
+      </main>
+    );
+  }
+  return status === 'authed' ? <Dashboard /> : <Auth />;
+}
 
 export function App() {
   return (
-    <main>
-      <h1>Eishera</h1>
-      <p>Phase 0 skeleton. No game yet.</p>
-    </main>
+    <GameProvider>
+      <Root />
+    </GameProvider>
   );
 }

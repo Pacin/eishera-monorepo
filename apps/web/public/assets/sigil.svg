@@ -1,0 +1,23 @@
+<svg width="96" height="96" viewBox="0 0 96 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="gold" x1="48" y1="6" x2="48" y2="90" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffe6a8" />
+      <stop offset="0.5" stop-color="#f0a64b" />
+      <stop offset="1" stop-color="#b9742a" />
+    </linearGradient>
+    <radialGradient id="core" cx="48" cy="44" r="26" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd27a" />
+      <stop offset="1" stop-color="#9c5a1f" />
+    </radialGradient>
+  </defs>
+  <!-- outer shield -->
+  <path d="M48 5 84 19v30c0 22-16 34-36 42C28 83 12 71 12 49V19L48 5Z"
+        fill="#1a1d27" stroke="url(#gold)" stroke-width="2.5" stroke-linejoin="round" />
+  <!-- inner ring -->
+  <path d="M48 14 76 25v24c0 17-12 27-28 33C32 76 20 66 20 49V25L48 14Z"
+        fill="none" stroke="url(#gold)" stroke-width="1" opacity="0.55" />
+  <!-- central rune: stylised E / rising flame -->
+  <path d="M48 28 L60 40 L52 40 L60 50 L51 50 L58 60 C54 66 48 68 48 68 C48 68 42 66 38 60 L45 50 L36 50 L44 40 L36 40 Z"
+        fill="url(#core)" stroke="url(#gold)" stroke-width="1.5" stroke-linejoin="round" />
+  <circle cx="48" cy="44" r="2.4" fill="#fff3d6" />
+</svg>

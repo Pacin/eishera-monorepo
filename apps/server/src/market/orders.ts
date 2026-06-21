@@ -11,7 +11,8 @@
 import { marketQueue } from './queue.js';
 import { withTransaction } from '../db/pool.js';
 import { query } from '../db/pool.js';
-import { pushToPlayer } from '../ws/registry.js';
+import { pushToPlayer, isPlayerOnline } from '../ws/registry.js';
+import { getPlayerSummaries } from '../players/service.js';
 import { getConfig } from '../config/store.js';
 import type { OrderResult, Fill, OrderBook, BookLevel, MarketSide } from '@eishera/shared';
 
@@ -200,6 +201,15 @@ export async function placeOrder(
 
     if (!('error' in outcome.result)) {
       for (const push of makerPushes) pushToPlayer(push.playerId, 'market:fill', push.payload);
+      // Gold/inventory changed for the placer and every maker → push fresh
+      // summaries so clients update without a /me GET (market runs off-tick).
+      const affected = [playerId, ...makerPushes.map((m) => m.playerId)].filter(
+        (id, i, a) => a.indexOf(id) === i && isPlayerOnline(id),
+      );
+      if (affected.length > 0) {
+        const summaries = await getPlayerSummaries(affected);
+        for (const [id, summary] of summaries) pushToPlayer(id, 'player:update', summary);
+      }
     }
     return outcome.result;
   });

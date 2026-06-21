@@ -18,5 +18,23 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-imports': 'error',
     },
   },
+  {
+    // Plain Node ESM utility scripts (e.g. the Playwright browser test) run on
+    // Node, not in TS — declare the Node globals they use.
+    files: ['**/*.mjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        fetch: 'readonly',
+        crypto: 'readonly',
+        document: 'readonly',
+      },
+    },
+  },
   prettier,
 );

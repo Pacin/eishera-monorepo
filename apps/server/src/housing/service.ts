@@ -180,7 +180,7 @@ export async function completeUpgradeJobs(
   client: PoolClient,
   uptime: number,
   playerId?: number,
-): Promise<number> {
+): Promise<number[]> {
   const params: unknown[] = [uptime];
   let sql =
     "SELECT id, player_id, feature_id, target_level FROM housing_upgrade_jobs WHERE status = 'in_progress' AND completes_live <= $1";
@@ -190,12 +190,14 @@ export async function completeUpgradeJobs(
   }
   sql += ' FOR UPDATE';
   const due = await client.query(sql, params);
+  const completedPlayers: number[] = [];
   for (const job of due.rows as {
     id: string;
     player_id: string;
     feature_id: number;
     target_level: number;
   }[]) {
+    completedPlayers.push(Number(job.player_id));
     await client.query(
       `INSERT INTO player_housing (player_id, feature_id, level) VALUES ($1, $2, $3)
        ON CONFLICT (player_id, feature_id) DO UPDATE SET level = EXCLUDED.level`,
@@ -205,7 +207,7 @@ export async function completeUpgradeJobs(
       job.id,
     ]);
   }
-  return due.rowCount ?? 0;
+  return completedPlayers;
 }
 
 export async function getHousing(playerId: number, cfg: ConfigSnapshot): Promise<HousingView> {

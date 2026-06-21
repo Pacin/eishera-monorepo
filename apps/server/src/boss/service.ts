@@ -94,6 +94,8 @@ export interface BossTickResult {
   active: boolean;
   expired: boolean;
   deaths: number;
+  /** Participant player IDs (so the tick loop can push boss:update to them). */
+  participants: number[];
 }
 
 /** Process the active boss for one tick (called inside the tick transaction). */
@@ -109,14 +111,23 @@ export async function processBossTick(
   const b = boss.rows[0] as
     | { id: string; tier: number; hp: string; max_hp: string; ends_tick: string }
     | undefined;
-  if (!b) return { active: false, expired: false, deaths: 0 };
+  if (!b) return { active: false, expired: false, deaths: 0, participants: [] };
   const bossId = Number(b.id);
 
   // Window closed → expire and distribute rewards by total_damage.
   if (tickNumber >= Number(b.ends_tick)) {
+    const ended = await client.query(
+      'SELECT player_id FROM world_boss_participants WHERE boss_id = $1',
+      [bossId],
+    );
     await distributeRewards(client, bossId, uptimeSeconds, cfg);
     await client.query("UPDATE world_boss SET status = 'expired' WHERE id = $1", [bossId]);
-    return { active: true, expired: true, deaths: 0 };
+    return {
+      active: true,
+      expired: true,
+      deaths: 0,
+      participants: (ended.rows as { player_id: string }[]).map((r) => Number(r.player_id)),
+    };
   }
 
   const g = cfg.gameConfig;
@@ -155,7 +166,8 @@ export async function processBossTick(
   }
 
   await client.query('UPDATE world_boss SET hp = $2, tier = $3 WHERE id = $1', [bossId, hp, tier]);
-  return { active: true, expired: false, deaths };
+  const participants = (parts.rows as { player_id: string }[]).map((r) => Number(r.player_id));
+  return { active: true, expired: false, deaths, participants };
 }
 
 async function distributeRewards(

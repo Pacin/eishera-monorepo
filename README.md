@@ -2,59 +2,68 @@
 
 A persistent browser-based game (PBBG) — server-authoritative, with **PostgreSQL as the single source of truth**. Built in ordered phases per [`SPEC.md`](./SPEC.md); starting content and balance live in [`SEED.md`](./SEED.md).
 
-> **Status: Phase 9 (chat).** Real-time **chat** over Socket.IO: a client sends a
-> `chat:send` event on the authenticated socket and the server **persists every
-> message** to `chat_messages` (the moderation record, SPEC §11), appends it to a
-> per-channel **ring buffer** (an in-memory cache, rebuildable from Postgres), and
-> **broadcasts** it to the channel room as `chat:message`. A newly connected socket
-> auto-joins the configured channels and is served each channel's **recent history**
-> from the buffer instantly. A per-player **rate limit** returns a definitive
-> `chat:error` (no silent drops). Channels, buffer size, rate limit, and max length
-> are live config (`game_config.chat`). Everything from Phases 4–8 still runs.
+> **Status: Phase 10 (frontend).** A **React 19 + TypeScript SPA** (`apps/web`) is
+> the playable client: register/login over httpOnly cookies (**no localStorage**,
+> SPEC §13), then a dashboard with Actions, Character, Housing, Market, World boss,
+> and Chat panels. The server stays authoritative; the client renders **smooth
+> values via the shared formulas** — a ticking action bar, skill XP bars
+> (`xpToNext`), a live housing countdown, and the boss HP bar. **Live updates over
+> Socket.IO**: on connect the server sends a **`sync`** bootstrap (player, content
+> catalog, housing, boss), then streams every update — `player:update`, battle
+> results, market fills, chat, `housing:update`, `boss:update`. The SPA makes **no
+> data GETs at all** (no `/me`, `/config`, `/housing`, `/boss`): auth status comes
+> from the socket handshake, and mutations are HTTP POSTs whose responses carry the
+> new state. Everything from Phases 4–9 still runs.
 
 ### HTTP / Realtime surface
 
-| Method    | Route                     | Auth                  | Purpose                                                      |
-| --------- | ------------------------- | --------------------- | ------------------------------------------------------------ |
-| GET       | `/health`                 | —                     | liveness probe                                               |
-| GET       | `/auth/csrf`              | —                     | issue a CSRF token (+ sets the secret cookie)                |
-| POST      | `/auth/register`          | —                     | create account → sets cookies, returns `{ player }` (201)    |
-| POST      | `/auth/login`             | —                     | sets cookies, returns `{ player }` (200) / 401               |
-| POST      | `/auth/refresh`           | refresh cookie + CSRF | rotate refresh token, reissue access cookie                  |
-| POST      | `/auth/logout`            | CSRF                  | revoke refresh token, clear cookies                          |
-| GET       | `/me`                     | access cookie         | current player summary                                       |
-| POST      | `/actions/select`         | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)      |
-| POST      | `/actions/battle`         | access cookie + CSRF  | choose a monster to fight (`{ monsterId }`)                  |
-| POST      | `/actions/refresh`        | access cookie + CSRF  | refill the action bar to `max_actions`                       |
-| POST      | `/actions/consume`        | access cookie + CSRF  | drink a potion (`{ itemCode }`) → active effect              |
-| POST      | `/equipment/equip`        | access cookie + CSRF  | equip an owned instance (`{ instanceId }`)                   |
-| POST      | `/equipment/unequip`      | access cookie + CSRF  | clear a slot (`{ slot }`)                                    |
-| GET       | `/equipment`              | access cookie         | equipped items + current effective combat stats              |
-| POST      | `/housing/upgrade`        | access cookie + CSRF  | start a feature upgrade (`{ featureId }`)                    |
-| POST      | `/housing/cancel`         | access cookie + CSRF  | cancel the active upgrade → partial refund                   |
-| GET       | `/housing`                | access cookie         | features, levels, next cost, active job (lazy-completes)     |
-| POST      | `/market/orders`          | access cookie + CSRF  | place a buy/sell order (`{side,item_id,price,qty,idem_key}`) |
-| POST      | `/market/orders/cancel`   | access cookie + CSRF  | cancel a resting order → release escrow                      |
-| GET       | `/market/book`            | access cookie         | aggregated order book for `?item_id=`                        |
-| POST      | `/market/listings`        | access cookie + CSRF  | list an instance (`{instance_id,price,idem_key}`)            |
-| POST      | `/market/listings/buy`    | access cookie + CSRF  | buy a listing (`{listing_id}`) — single-buyer                |
-| POST      | `/market/listings/cancel` | access cookie + CSRF  | cancel your listing                                          |
-| GET       | `/market/listings`        | access cookie         | active listings for `?item_id=`                              |
-| POST      | `/salvage`                | access cookie + CSRF  | salvage an instance (`{instance_id}`) → materials            |
-| POST      | `/boss/join`              | access cookie + CSRF  | join the world boss (auto-spawns if none active)             |
-| GET       | `/boss`                   | access cookie         | boss state + your damage + ticks remaining                   |
-| POST      | `/boosts/buy`             | access cookie + CSRF  | buy a global boost with tokens (`{boostCode}`)               |
-| Socket.IO | (connection)              | access cookie         | `hello` + ping/pong; receives `battle`, `market:fill`        |
-| Socket.IO | `chat:send` (in)          | access cookie         | send a message (`{channel, body}`) — persisted + broadcast   |
-| Socket.IO | `chat:message` (out)      | access cookie         | a broadcast message for a joined channel                     |
-| Socket.IO | `chat:history` (out)      | access cookie         | recent history per channel, sent on connect (from buffer)    |
-| Socket.IO | `chat:error` (out)        | access cookie         | definitive send rejection (`rate_limited`, validation, …)    |
+| Method    | Route                     | Auth                  | Purpose                                                          |
+| --------- | ------------------------- | --------------------- | ---------------------------------------------------------------- |
+| GET       | `/health`                 | —                     | liveness probe                                                   |
+| GET       | `/auth/csrf`              | —                     | issue a CSRF token (+ sets the secret cookie)                    |
+| POST      | `/auth/register`          | —                     | create account → sets cookies, returns `{ player }` (201)        |
+| POST      | `/auth/login`             | —                     | sets cookies, returns `{ player }` (200) / 401                   |
+| POST      | `/auth/refresh`           | refresh cookie + CSRF | rotate refresh token, reissue access cookie                      |
+| POST      | `/auth/logout`            | CSRF                  | revoke refresh token, clear cookies                              |
+| GET       | `/me`                     | access cookie         | current player summary (incl. current activity)                  |
+| GET       | `/config`                 | access cookie         | read-only content catalog + client formula constants             |
+| POST      | `/actions/select`         | access cookie + CSRF  | choose a transform recipe (`{ recipeId }`, `null`=idle)          |
+| POST      | `/actions/battle`         | access cookie + CSRF  | choose a monster to fight (`{ monsterId }`)                      |
+| POST      | `/actions/refresh`        | access cookie + CSRF  | refill the action bar to `max_actions`                           |
+| POST      | `/actions/consume`        | access cookie + CSRF  | drink a potion (`{ itemCode }`) → active effect                  |
+| POST      | `/equipment/equip`        | access cookie + CSRF  | equip an owned instance (`{ instanceId }`)                       |
+| POST      | `/equipment/unequip`      | access cookie + CSRF  | clear a slot (`{ slot }`)                                        |
+| GET       | `/equipment`              | access cookie         | equipped items + current effective combat stats                  |
+| POST      | `/housing/upgrade`        | access cookie + CSRF  | start a feature upgrade (`{ featureId }`)                        |
+| POST      | `/housing/cancel`         | access cookie + CSRF  | cancel the active upgrade → partial refund                       |
+| GET       | `/housing`                | access cookie         | features, levels, next cost, active job (lazy-completes)         |
+| POST      | `/market/orders`          | access cookie + CSRF  | place a buy/sell order (`{side,item_id,price,qty,idem_key}`)     |
+| POST      | `/market/orders/cancel`   | access cookie + CSRF  | cancel a resting order → release escrow                          |
+| GET       | `/market/book`            | access cookie         | aggregated order book for `?item_id=`                            |
+| POST      | `/market/listings`        | access cookie + CSRF  | list an instance (`{instance_id,price,idem_key}`)                |
+| POST      | `/market/listings/buy`    | access cookie + CSRF  | buy a listing (`{listing_id}`) — single-buyer                    |
+| POST      | `/market/listings/cancel` | access cookie + CSRF  | cancel your listing                                              |
+| GET       | `/market/listings`        | access cookie         | active listings for `?item_id=`                                  |
+| POST      | `/salvage`                | access cookie + CSRF  | salvage an instance (`{instance_id}`) → materials                |
+| POST      | `/boss/join`              | access cookie + CSRF  | join the world boss (auto-spawns if none active)                 |
+| GET       | `/boss`                   | access cookie         | boss state + your damage + ticks remaining                       |
+| POST      | `/boosts/buy`             | access cookie + CSRF  | buy a global boost with tokens (`{boostCode}`)                   |
+| Socket.IO | (connection)              | access cookie         | `hello` + ping/pong; receives `battle`, `market:fill`            |
+| Socket.IO | `sync` (out)              | access cookie         | bootstrap on connect: `{ me, catalog, housing, boss }` (no GETs) |
+| Socket.IO | `player:update` (out)     | access cookie         | per-tick player summary for active players (replaces `/me` poll) |
+| Socket.IO | `housing:update` (out)    | access cookie         | full housing view when an upgrade completes                      |
+| Socket.IO | `boss:update` (out)       | access cookie         | live boss view to all online players while a boss is active      |
+| Socket.IO | `chat:send` (in)          | access cookie         | send a message (`{channel, body}`) — persisted + broadcast       |
+| Socket.IO | `chat:message` (out)      | access cookie         | a broadcast message for a joined channel                         |
+| Socket.IO | `chat:history` (out)      | access cookie         | recent history per channel, sent on connect (from buffer)        |
+| Socket.IO | `chat:error` (out)        | access cookie         | definitive send rejection (`rate_limited`, validation, …)        |
 
 Auth tokens are delivered as **httpOnly cookies** (never in the response body or
 `localStorage`, per SPEC §13). Realtime is **Socket.IO**, which authenticates the
 access cookie at the connection handshake — no token in the URL. In dev the Vite
-server proxies `/auth`, `/me`, `/health`, `/actions`, `/equipment`, and
-`/socket.io` to the backend so the SPA and API share an origin (keeps
+server proxies the API routes (`/auth`, `/me`, `/config`, `/actions`,
+`/equipment`, `/housing`, `/market`, `/salvage`, `/boss`, `/boosts`, `/health`)
+and `/socket.io` to the backend so the SPA and API share an origin (keeps
 `SameSite=Strict` working without HTTPS).
 
 Smoke-test the whole surface against a running server:
@@ -224,6 +233,30 @@ definitive `rate_limited` error, and validation rejects unknown channels / empty
 over-length bodies. `sio:chat` connects two sockets and confirms a `chat:send`
 **broadcasts** as `chat:message` to the other, a fresh socket gets **history on
 connect**, and flooding yields a `chat:error` (`rate_limited`).
+
+### Run the frontend (Phase 10)
+
+```bash
+pnpm --filter @eishera/server start   # or: dev — backend on :4000
+pnpm --filter @eishera/web dev        # SPA on http://localhost:5173 (proxies to :4000)
+```
+
+Open `http://localhost:5173`, register, and the dashboard loads: pick a recipe or
+monster (the action bar **ticks** toward the next action), watch skill **XP bars**
+(`xpToNext`), start a housing upgrade (**live countdown**), join the **world boss**
+(**HP bar**), trade on the market, and chat. Battle results, market fills, and chat
+arrive **live over Socket.IO**; `/me`, `/housing`, `/boss` re-sync on a short poll.
+No state is kept in `localStorage` — auth rides httpOnly cookies (SPEC §13).
+
+A real-browser (Chromium/Playwright) render test drives the live SPA end to end —
+register → every panel renders → select an activity → join the boss → place an
+order → send chat — asserting on the rendered DOM and capturing a screenshot:
+
+```bash
+pnpm --filter @eishera/web exec playwright install chromium   # one-time
+# with the backend (:4000) and `pnpm --filter @eishera/web dev` (:5173) running:
+pnpm --filter @eishera/web test:browser
+```
 
 ## Database migrations
 
@@ -501,3 +534,80 @@ Docker, the server container applies pending migrations on startup
   tunable like all other balance config. Flagged, not hidden.
 - **`username` is denormalized into the buffer/broadcast** for display; the
   `chat_messages` row stores only `player_id`, so the rebuild query joins `players`.
+
+## Key decisions (Phase 10)
+
+- **Server-authoritative, client-predicted (never client-owned).** The SPA holds
+  the latest server snapshots and renders smooth values _between_ them using the
+  **same `@eishera/shared` formulas the server runs** (`xpToNext` for XP bars, the
+  `tick_seconds` cadence for the action ticker, server `remaining_seconds` for the
+  housing countdown, `hp/max_hp` for the boss bar). Predictions are cosmetic; every
+  authoritative number is re-synced and never invented locally.
+- **Everything over the socket — the SPA makes no data GETs.** On connect the
+  server emits a **`sync`** bootstrap (`{ me, catalog, housing, boss }`), so there's
+  no load-time GET of `/me`, `/config`, `/housing`, or `/boss`. **Auth status is
+  derived from the socket handshake**, not a `/me` probe: `sync` → authed. A
+  `connect_error` (usually an expired 15-min access token, even on a fresh reload)
+  first attempts a token **refresh** via the 30-day refresh cookie and reconnects
+  with a fresh socket — only a genuinely failed refresh shows the login screen, so
+  reloading after the access token expires keeps you signed in. Mutations are HTTP POSTs (cookie + CSRF, per the transport
+  split) whose **responses carry the new state** — the client applies them directly
+  instead of re-fetching. After each tick commits, the loop pushes (to **online**
+  players only, bounded work):
+  - **`player:update`** — the player summary to each online _active_ player (the
+    per-tick heartbeat: actions/xp/gold). Idle players get nothing because nothing
+    changes. Batched (`getPlayerSummaries`, a fixed 3 queries, not 3×N).
+  - **`housing:update`** — the full housing view to players whose upgrade _completed_
+    this tick. Housing otherwise only changes on the player's own mutation (applied
+    from the POST response).
+  - **`boss:update`** — the per-player boss view to **all online players** each tick
+    while a boss is active (live HP/timer/your*damage \_and* discovery of a freshly
+    spawned boss, SPEC §9/§13). Bounded to online players, only during boss windows.
+  - Market fills also push a `player:update` to both parties (market runs off-tick),
+    so gold updates without a `/me` GET.
+
+  _On the `/config` confusion:_ that endpoint is **not** the server tuning system
+  (`game_config`); it's a read-only content **catalog** + formula constants. It now
+  ships inside `sync`, so the frontend never fetches it. (The GET routes still exist
+  server-side for tests/tools; the SPA simply doesn't call them.)
+
+- **Removed the redundant "Refill actions" button.** Clicking the action bar itself
+  refills (SPEC §6), so the separate panel button was dropped.
+
+- **New read-only `GET /config`.** The client needs content (recipes, monsters,
+  housing, items, rarities, boosts) and the formula constants to render and predict.
+  Rather than scatter this across endpoints, one catalog endpoint projects the config
+  snapshot (display + constants only — never RNG or per-player state). `PlayerSummary`
+  also now carries `active_recipe_id`/`active_monster_id` so the UI can show the
+  current activity after a reload.
+- **No `localStorage`/`sessionStorage` (SPEC §13).** Auth rides httpOnly cookies the
+  browser attaches automatically; only the CSRF token lives in memory. The API client
+  refreshes CSRF on a 403 and rotates the access cookie via `/auth/refresh` on a 401,
+  retrying once — so a 15-minute access-token expiry is invisible to the player.
+- **Socket auth via cookie, not URL.** The client opens the socket with no token;
+  the cookie authenticates the handshake (same path as the HTTP API). In dev the Vite
+  proxy makes `:5173` same-origin with the backend so `SameSite=Strict` holds without
+  HTTPS. (Note: a headless Node `socket.io-client` must pass the cookie via
+  `extraHeaders`, which is reliable on the polling handshake; a real browser sends it
+  automatically on both transports.)
+- **Scope kept tight.** The market panel surfaces the **fungible order book**
+  (the spec's "smooth market prices" + live fills); equipment **instance listings**
+  and **salvage** remain fully available via the API but aren't given dedicated UI in
+  v1 — flagged, not hidden, to keep the first frontend focused.
+- **Verified in a real browser; bugs caught + fixed.** The Chromium test exposed
+  that bodyless POSTs (`/boss/join`, `/actions/refresh`, `/housing/cancel`,
+  `/auth/logout`) were sent with `content-type: application/json` and an empty body,
+  which Fastify rejects (`FST_ERR_CTP_EMPTY_JSON_BODY`, 400). The API client now sets
+  that header only when a body is present.
+- **Single-flight token refresh (fixes "UI freezes / reload logs out").** Refresh
+  tokens rotate and reuse is treated as theft — the server revokes the **whole
+  session** (`auth/refresh.ts`). The poll fires `/me`, `/housing`, `/boss` together,
+  so once the 15-min access token expired all three 401'd and each fired its own
+  `/auth/refresh` with the same cookie: the first rotated it, the others replayed the
+  now-revoked token → session revoked → every request failed (UI frozen) and reload
+  → login. Fix: concurrent refreshes now **share one in-flight promise** (`api.ts`),
+  so expiry triggers exactly one clean rotation. The reload `/me` probe also attempts
+  a refresh, so a reload restores the session via the 30-day refresh cookie. A poll
+  `/me` that 401s even after refresh drops to the login screen instead of freezing.
+  Both paths are covered by `test:browser` (reload check) and a session-expiry test
+  run with `ACCESS_TTL=4s` (survives ~4 expiries without revoke).
