@@ -1,25 +1,27 @@
-/* Eishera — dark-fantasy theme.
-   Class names mirror the components unchanged; this file is purely presentational. */
+/* Eishera — medieval theme. Solid stone/wood/parchment tones; no gradients, no
+   translucent backgrounds, no glow. Class names mirror the components unchanged. */
 
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --bg: #0b0d13;
-  --bg-2: #12141c;
-  --panel: #171b25;
-  --panel-2: #1e232f;
-  --panel-3: #262c3a;
-  --line: #2b313f;
-  --line-soft: #222734;
-  --text: #e8ebf2;
-  --muted: #8b93a7;
-  --accent: #f0a64b;
-  --accent-2: #ffd27a;
-  --accent-deep: #b9742a;
-  --good: #5fd08a;
-  --bad: #e2607a;
-  --shadow: 0 18px 40px -22px rgba(0, 0, 0, 0.85);
-  --ring: 0 0 0 1px rgba(240, 166, 75, 0.45), 0 0 22px -6px rgba(240, 166, 75, 0.5);
+  --bg: #0e0b06;
+  --bg-2: #14100a;
+  --panel: #1b160d;
+  --panel-2: #211a10;
+  --panel-3: #2a2114;
+  --line: #4a3a1f;
+  --line-soft: #382c18;
+  --text: #e8dcc0;
+  --muted: #9c8a68;
+  --accent: #c8962f;
+  --accent-2: #e6c068;
+  --accent-deep: #7a5a1c;
+  --good: #8aa84f;
+  --bad: #c25237;
+  --ink: #100d07; /* recessed wells: inputs, bars, logs */
+  --shadow: 0 14px 30px -20px rgba(0, 0, 0, 0.85);
+  /* "ring" is now a solid accent border, not a glow. */
+  --ring: 0 0 0 1px var(--accent);
   --display: 'Cinzel', Georgia, serif;
   --sans:
     'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -33,10 +35,7 @@ body {
   margin: 0;
   color: var(--text);
   font: 14px/1.55 var(--sans);
-  background:
-    radial-gradient(1100px 700px at 50% -5%, transparent 45%, rgba(11, 13, 19, 0.55) 100%),
-    url('/assets/background.jpg') center top / cover fixed,
-    var(--bg);
+  background: var(--bg);
   min-height: 100vh;
 }
 
@@ -59,9 +58,8 @@ h2::before {
   content: '';
   width: 3px;
   height: 1.05em;
-  border-radius: 2px;
-  background: linear-gradient(var(--accent-2), var(--accent-deep));
-  box-shadow: 0 0 8px rgba(240, 166, 75, 0.5);
+  border-radius: 1px;
+  background: var(--accent);
 }
 
 /* ---------- controls ---------- */
@@ -70,19 +68,18 @@ button {
   font-size: 13px;
   cursor: pointer;
   border: 1px solid var(--line);
-  background: linear-gradient(var(--panel-2), var(--panel));
+  background: var(--panel-2);
   color: var(--text);
-  border-radius: 8px;
+  border-radius: 3px;
   padding: 0.42rem 0.8rem;
   transition:
-    border-color 0.15s,
+    border-color 0.12s,
     transform 0.08s,
-    box-shadow 0.15s,
-    background 0.15s;
+    background 0.12s;
 }
 button:hover:not(:disabled) {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px rgba(240, 166, 75, 0.25);
+  background: var(--panel-3);
 }
 button:active:not(:disabled) {
   transform: translateY(1px);
@@ -92,33 +89,31 @@ button:disabled {
   cursor: default;
 }
 button.primary {
-  background: linear-gradient(180deg, var(--accent-2), var(--accent) 55%, var(--accent-deep));
-  color: #2a1a06;
-  border-color: var(--accent-deep);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.25);
+  background: #3c2d13;
+  color: var(--accent-2);
+  border-color: #6b5121;
+  font-family: var(--display);
+  letter-spacing: 0.02em;
 }
 button.primary:hover:not(:disabled) {
-  box-shadow: 0 6px 18px -8px rgba(240, 166, 75, 0.8);
-  filter: brightness(1.05);
+  background: #4c3917;
+  border-color: var(--accent);
 }
 
 input,
 select {
   font: inherit;
-  background: rgba(0, 0, 0, 0.28);
+  background: var(--ink);
   color: var(--text);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 3px;
   padding: 0.45rem 0.6rem;
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
+  transition: border-color 0.12s;
 }
 input:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(240, 166, 75, 0.15);
 }
 
 .muted {
@@ -137,10 +132,8 @@ select:focus {
   align-items: center;
   gap: 1rem;
   padding: 0.7rem 1.25rem;
-  background: linear-gradient(180deg, rgba(30, 35, 47, 0.92), rgba(18, 20, 28, 0.92));
-  border-bottom: 1px solid var(--line);
-  box-shadow: 0 1px 0 rgba(240, 166, 75, 0.12) inset, 0 8px 24px -16px #000;
-  backdrop-filter: blur(8px);
+  background: var(--panel);
+  border-bottom: 2px solid var(--line);
   position: sticky;
   top: 0;
   z-index: 10;
@@ -155,15 +148,11 @@ select:focus {
   letter-spacing: 0.08em;
   font-size: 1.15rem;
   text-transform: uppercase;
-  background: linear-gradient(180deg, var(--accent-2), var(--accent-deep));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--accent-2);
 }
 .brand img {
   width: 30px;
   height: 30px;
-  filter: drop-shadow(0 2px 6px rgba(240, 166, 75, 0.4));
 }
 .topbar .who-name {
   font-weight: 600;
@@ -172,9 +161,9 @@ select:focus {
 .topbar .stat {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--ink);
   border: 1px solid var(--line-soft);
-  border-radius: 999px;
+  border-radius: 3px;
   padding: 0.25rem 0.7rem;
 }
 .dot {
@@ -186,7 +175,6 @@ select:focus {
 }
 .dot.on {
   background: var(--good);
-  box-shadow: 0 0 8px var(--good);
 }
 .dot.off {
   background: var(--bad);
@@ -197,79 +185,210 @@ select:focus {
 .tabs {
   display: flex;
   gap: 0.4rem;
-  padding: 0.9rem 1.25rem 0;
-  max-width: 1180px;
-  margin: 0 auto;
+  padding: 0 0 0.8rem;
   flex-wrap: wrap;
 }
 .tabs button {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  background: linear-gradient(180deg, var(--panel-2), var(--panel));
-  box-shadow: 0 6px 16px -10px #000;
+  background: var(--panel-2);
 }
 .tabs button img {
   width: 16px;
   height: 16px;
-  opacity: 0.6;
+  opacity: 0.55;
   transition: opacity 0.15s;
 }
 .tabs button.active {
   border-color: var(--accent);
   color: var(--accent-2);
-  background: linear-gradient(180deg, #3a2f1c, #241d12);
-  box-shadow: var(--ring);
+  background: #3c2d13;
 }
 .tabs button.active img {
   opacity: 1;
-  filter: drop-shadow(0 0 4px rgba(240, 166, 75, 0.6));
+}
+/* Vertical nav — the tab links live stacked in the left column. */
+.nav-vert {
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0;
+}
+.nav-vert button {
+  justify-content: flex-start;
+  width: 100%;
+  padding: 0.55rem 0.75rem;
 }
 
-/* ---------- layout ---------- */
-.layout {
-  padding: 1.1rem 1.25rem 2rem;
-  display: grid;
-  gap: 1.1rem;
-  grid-template-columns: 1fr;
-  max-width: 1180px;
-  margin: 0 auto;
+/* ---------- fixed three-column app ----------
+   left (nav + attributes + skills) | middle (the only scroll area) | right (log),
+   with chat pinned along the bottom. Below 980px it falls back to normal page flow
+   so small screens stay usable. */
+.app {
+  display: flex;
+  flex-direction: column;
 }
-@media (min-width: 900px) {
-  .layout.two {
-    grid-template-columns: 1fr 370px;
-    align-items: start;
+.columns {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+}
+.col-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  min-height: 0;
+}
+.col-mid {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+@media (min-width: 980px) {
+  /* Lock the page; the middle column becomes the sole scroll container. */
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+  .app {
+    height: 100vh;
+  }
+  .columns {
+    flex: 1;
+    grid-template-columns: 250px minmax(0, 1fr) 300px;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .col-left,
+  .logcol {
+    overflow: hidden;
+  }
+  .col-mid {
+    overflow-y: auto;
+    padding-right: 4px;
   }
 }
 
-/* Ornate wooden 9-slice frame, composed from the 4 corner + 4 edge PNGs.
-   Corner layers are listed first so they paint over the tiled edges at the joins.
-   The dark panel fill is the final (border-box) layer, sitting behind the frame. */
+/* Attributes/skills block inside the left column. */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+  min-height: 0;
+}
+.sidebar .panel {
+  padding: 0.75rem 0.8rem;
+}
+.sidebar .bar {
+  height: 7px;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+.stat-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--ink);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  padding: 0.32rem 0.55rem;
+  font-size: 12px;
+}
+.stat-chip b {
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.skill-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.skill-xp {
+  font-size: 11px;
+  margin-top: 3px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Right column: live activity log. The column itself does not scroll — entries
+   are capped upstream and the newest sit at the top, so overflow falls off the
+   bottom rather than introducing a second scrollbar. */
+.logcol {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.log-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-height: 0;
+  overflow: hidden;
+}
+.log-line {
+  font-size: 12.5px;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+.log-line:last-child {
+  border-bottom: none;
+}
+.log-detail {
+  font-size: 11.5px;
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+/* Chat pinned along the bottom, full width (matches the columns' max width). */
+.chatbar {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 1.25rem 1rem;
+  min-height: 0;
+}
+
+/* Solid stone panel — flat fill, warm border, square-ish medieval corners. */
 .panel {
   position: relative;
-  border: 12px solid transparent;
+  border: 1px solid var(--line);
   border-radius: 3px;
-  padding: 0.9rem 1rem;
-  background:
-    url('/assets/top-left-corner.png') left top / 12px 12px no-repeat,
-    url('/assets/top-right-corner.png') right top / 12px 12px no-repeat,
-    url('/assets/bottom-left-corner.png') left bottom / 12px 12px no-repeat,
-    url('/assets/bottom-right-corner.png') right bottom / 12px 12px no-repeat,
-    url('/assets/top-border.png') left top / auto 12px repeat-x,
-    url('/assets/bottom-border.png') left bottom / auto 12px repeat-x,
-    url('/assets/left-border.png') left top / 12px auto repeat-y,
-    url('/assets/right-border.png') right top / 12px auto repeat-y,
-    linear-gradient(180deg, var(--panel), var(--panel-2)) border-box;
-  background-origin: border-box;
-  background-clip: border-box;
+  padding: 0.85rem 0.95rem;
+  background: var(--panel);
   box-shadow: var(--shadow);
+}
+.list > .panel + .panel,
+.sidebar .panel + .panel {
+  margin-top: 0;
 }
 
 /* ---------- bars ---------- */
 .bar {
   height: 11px;
-  background: rgba(0, 0, 0, 0.35);
-  border-radius: 6px;
+  background: var(--ink);
+  border-radius: 2px;
   overflow: hidden;
   border: 1px solid var(--line);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
@@ -277,8 +396,7 @@ select:focus {
 .bar > span {
   display: block;
   height: 100%;
-  background: linear-gradient(180deg, var(--accent-2), var(--accent));
-  box-shadow: 0 0 10px rgba(240, 166, 75, 0.5);
+  background: var(--accent);
   transition: width 0.25s linear;
 }
 /* Action ticker — driven at 60fps in JS, so no transition (must snap to 100%). */
@@ -286,7 +404,7 @@ select:focus {
   position: relative;
   width: 260px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: 3px;
   flex: none;
   padding: 0;
   cursor: pointer;
@@ -312,12 +430,84 @@ select:focus {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 .bar.hp > span {
-  background: linear-gradient(180deg, #f0859b, var(--bad));
-  box-shadow: 0 0 10px rgba(226, 96, 122, 0.5);
+  background: var(--bad);
 }
 .bar.xp > span {
-  background: linear-gradient(180deg, #8be0aa, var(--good));
-  box-shadow: 0 0 10px rgba(95, 208, 138, 0.45);
+  background: var(--good);
+}
+
+/* ── Action detail (combat report / gather result) ───────────────────────── */
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.detail-head h2 {
+  margin: 0;
+}
+.duel-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.7rem;
+}
+.duel-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.duel-head .vs {
+  font-weight: 700;
+}
+.bar.duel {
+  position: relative;
+  height: 22px;
+}
+.bar.mine > span {
+  background: var(--good);
+}
+.bar.foe > span {
+  background: var(--bad);
+}
+.outcome.win {
+  color: var(--good);
+  font-weight: 700;
+}
+.outcome.loss {
+  color: var(--bad);
+  font-weight: 700;
+}
+.boost {
+  color: var(--good);
+  font-weight: 600;
+}
+/* Level-up notice — stands out from the lighter gain lines via a heavier weight. */
+.level-up {
+  font-weight: 800;
+  color: var(--good);
+}
+.gains {
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+.tracker {
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+}
+.tracker h3 {
+  margin: 0 0 0.4rem;
+  font-size: 14px;
+}
+.tracker-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.25rem;
 }
 
 /* ---------- structural helpers ---------- */
@@ -338,14 +528,13 @@ select:focus {
   gap: 0.6rem;
 }
 .card {
-  background: linear-gradient(180deg, var(--panel-2), var(--panel-3));
+  background: var(--panel-2);
   border: 1px solid var(--line-soft);
-  border-radius: 10px;
+  border-radius: 3px;
   padding: 0.7rem 0.8rem;
   transition:
     border-color 0.15s,
-    transform 0.08s,
-    box-shadow 0.15s;
+    transform 0.08s;
 }
 .card:hover {
   border-color: var(--line);
@@ -372,17 +561,13 @@ select:focus {
   font-size: 2rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  background: linear-gradient(180deg, var(--accent-2), var(--accent-deep));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--accent-2);
 }
 .auth .sigil {
   width: 84px;
   height: 84px;
   margin: 0 auto 0.4rem;
   display: block;
-  filter: drop-shadow(0 6px 18px rgba(240, 166, 75, 0.35));
 }
 .auth input {
   margin-bottom: 0.7rem;
@@ -394,30 +579,254 @@ select:focus {
   font-size: 14px;
 }
 
-/* ---------- chat ---------- */
-.chat-log {
-  height: 340px;
-  overflow-y: auto;
+/* ---------- chat: medieval console ----------
+   Solid stone/wood tones, no gradients, no glow. Channel ledger on the left,
+   timestamped log on the right, an inscribed entry line below. */
+.panel.chat {
+  display: flex;
+  padding: 0;
+  background: #14110b;
+  border: 1px solid #4a3a1f;
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 10px 26px -18px #000;
+}
+.panel.chat::before {
+  display: none; /* kill the gold hairline */
+}
+
+.chat-channels {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
-  font-size: 13px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  padding: 0.6rem 0.7rem;
+  gap: 2px;
+  width: 130px;
+  flex: none;
+  padding: 5px;
+  background: #1b160d;
+  border-right: 1px solid #4a3a1f;
 }
-.chat-line .who {
-  color: var(--accent-2);
+.chat-chan {
+  font-family: var(--display);
+  font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0.03em;
+  text-align: left;
+  text-transform: capitalize;
+  color: #b29c72;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 0.4rem 0.55rem;
+  box-shadow: none;
+  transition: none;
+}
+.chat-chan:hover:not(.active) {
+  background: #271f12;
+  border-color: transparent;
+  box-shadow: none;
+}
+.chat-chan.active {
+  background: #3c2d13;
+  border-color: #6b5121;
+  color: var(--accent-2);
+  box-shadow: none;
+}
+/* Unread-whisper count on the lane button. */
+.chan-badge {
+  display: inline-block;
+  margin-left: 6px;
+  min-width: 16px;
+  padding: 0 4px;
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  color: #1c1408;
+  background: var(--accent);
+  border-radius: 8px;
+}
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.chat-log {
+  height: 150px;
+  overflow-y: auto;
+  background: #100d07;
+  padding: 0.45rem 0.65rem;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #cdbd97;
+}
+.chat-line {
+  word-wrap: break-word;
+}
+.chat-line .ts {
+  color: #5f5236;
+  font-variant-numeric: tabular-nums;
   margin-right: 0.4rem;
 }
+/* Username is a button (opens the per-user menu) — strip the global button chrome. */
+.chat-line .who {
+  font-weight: 700;
+  margin-right: 0.3rem;
+  color: var(--accent-2);
+  background: none;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  font-size: inherit;
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+.chat-line .who:hover:not(:disabled) {
+  background: none;
+  border: none;
+  text-decoration: underline;
+}
+.chat-line .who::after {
+  content: ':';
+  color: #5f5236;
+  font-weight: 400;
+}
+
+/* Per-user popover menu (Profile / Wire / Whisper / Ignore). */
+.user-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  box-shadow: var(--shadow);
+}
+.user-menu-name {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--accent-2);
+  padding: 4px 8px 6px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--line-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.user-menu button {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  padding: 0.4rem 0.55rem;
+}
+.user-menu button:hover:not(:disabled) {
+  background: #271f12;
+  border-color: transparent;
+}
+.user-menu-note {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--muted);
+  padding: 5px 8px 3px;
+}
+.chat-line .msg {
+  color: #cdbd97;
+}
+.chat-empty {
+  color: #5f5236;
+  font-style: italic;
+  padding: 0.25rem 0;
+}
+.whisper-pair {
+  color: var(--accent-2);
+}
+/* Transient feedback line (wire receipts, command usage hints, errors). */
+.chat-notice {
+  font-size: 12px;
+  color: var(--good);
+  background: #16120a;
+  border-top: 1px solid #4a3a1f;
+  padding: 0.3rem 0.7rem;
+}
+.chat-notice.bad {
+  color: var(--bad);
+}
+
+.chat-entry {
+  display: flex;
+  align-items: stretch;
+  border-top: 1px solid #4a3a1f;
+  background: #1b160d;
+}
+.chat-prompt {
+  display: flex;
+  align-items: center;
+  font-family: var(--display);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--accent-2);
+  white-space: nowrap;
+  padding: 0 0.65rem;
+  background: #251c0f;
+  border-right: 1px solid #4a3a1f;
+}
+.chat-entry input {
+  flex: 1;
+  min-width: 0;
+  background: #100d07;
+  border: none;
+  border-radius: 0;
+  color: #e8dcc0;
+  padding: 0.5rem 0.7rem;
+}
+.chat-entry input:focus {
+  outline: none;
+  background: #16120a;
+  box-shadow: none;
+}
+.chat-entry input.rate-limited {
+  color: var(--bad);
+}
+.chat-entry button.primary {
+  font-family: var(--display);
+  font-weight: 600;
+  color: var(--accent-2);
+  background: #3c2d13;
+  border: none;
+  border-left: 1px solid #6b5121;
+  border-radius: 0;
+  text-shadow: none;
+  padding: 0 1.05rem;
+}
+.chat-entry button.primary:hover:not(:disabled) {
+  background: #4c3917;
+  box-shadow: none;
+  filter: none;
+}
 .chat-log::-webkit-scrollbar {
-  width: 8px;
+  width: 9px;
+}
+.chat-log::-webkit-scrollbar-track {
+  background: #100d07;
 }
 .chat-log::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border-radius: 8px;
+  background: #4a3a1f;
+  border-radius: 0;
+  border: 2px solid #100d07;
 }
 
 /* ---------- tables ---------- */

@@ -21,6 +21,14 @@ export interface DuelSummary {
   damage_taken: number;
   won: boolean;
   crit_count: number;
+  player_hits: number;
+  player_misses: number;
+  monster_hits: number;
+  monster_misses: number;
+  player_hp: number;
+  player_max_hp: number;
+  monster_hp: number;
+  monster_max_hp: number;
 }
 
 type Rng = () => number;
@@ -47,11 +55,17 @@ export function simulateDuel(
   const dodgeChance = clamp(0, 0.95, dodgeVal / (dodgeVal + monster.accuracy));
   const monsterDamage = Math.max(1, Math.round(monster.attack - eff.def * c.mitigation_per_def));
 
-  let monsterHp = monster.hp;
-  let playerHp = Math.max(1, Math.round(eff.vit * c.hp_per_vit));
+  const monsterMaxHp = monster.hp;
+  const playerMaxHp = Math.max(1, Math.round(eff.vit * c.hp_per_vit));
+  let monsterHp = monsterMaxHp;
+  let playerHp = playerMaxHp;
   let damageDealt = 0;
   let damageTaken = 0;
   let critCount = 0;
+  let playerHits = 0;
+  let playerMisses = 0;
+  let monsterHits = 0;
+  let monsterMisses = 0;
   let won = false;
   let rounds = 0;
 
@@ -67,16 +81,22 @@ export function simulateDuel(
       }
       monsterHp -= dmg;
       damageDealt += dmg;
+      playerHits++;
+    } else {
+      playerMisses++;
     }
     if (monsterHp <= 0) {
       won = true;
       break;
     }
 
-    // Monster attacks (player may dodge).
+    // Monster attacks (player may dodge → counts as a monster miss).
     if (rng() >= dodgeChance) {
       playerHp -= monsterDamage;
       damageTaken += monsterDamage;
+      monsterHits++;
+    } else {
+      monsterMisses++;
     }
     if (playerHp <= 0) {
       won = false;
@@ -91,5 +111,13 @@ export function simulateDuel(
     damage_taken: damageTaken,
     won,
     crit_count: critCount,
+    player_hits: playerHits,
+    player_misses: playerMisses,
+    monster_hits: monsterHits,
+    monster_misses: monsterMisses,
+    player_hp: Math.max(0, playerHp),
+    player_max_hp: playerMaxHp,
+    monster_hp: Math.max(0, monsterHp),
+    monster_max_hp: monsterMaxHp,
   };
 }

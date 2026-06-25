@@ -41,6 +41,7 @@ export interface GameConfig {
   xp_curve: XpCurve;
   xp_per_action: number;
   yield_slope: number;
+  xp_slope: number;
   rare: RareCurve;
   crit_chance_base: number;
   crit_multiplier: number;
@@ -62,6 +63,7 @@ export const GAME_CONFIG_KEYS = [
   'xp_curve',
   'xp_per_action',
   'yield_slope',
+  'xp_slope',
   'rare',
   'crit_chance_base',
   'crit_multiplier',

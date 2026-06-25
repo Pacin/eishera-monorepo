@@ -8,7 +8,7 @@
 // Returns the BattleResult summary for the websocket (round log is not persisted).
 
 import type { PoolClient } from 'pg';
-import { gainXp } from '@eishera/shared';
+import { gainXp, xpScale } from '@eishera/shared';
 import type { Monster, BattleResult, LootDrop } from '@eishera/shared';
 import type { ConfigSnapshot } from '../config/snapshot.js';
 import { computeEffectiveStats, COMBAT_STATS, type CombatStat } from './stats.js';
@@ -31,18 +31,21 @@ export async function processCombat(
   const g = cfg.gameConfig;
   const eff = await computeEffectiveStats(client, playerId, uptimeSeconds, cfg);
   const duel = simulateDuel(eff, monster, g, rng);
+  // Captured once so the result can flag whether a boost was active (the detail
+  // view shows "Bonus active"), and reused for the win-path XP gain below.
+  const xpMult = await xpMultiplier(client, playerId, uptimeSeconds);
 
   // Base-stat deltas (level-up distribution + random gain) and gold, applied in
   // one player UPDATE at the end. They affect FUTURE actions, not this one.
   const statDelta: Record<CombatStat, number> = { str: 0, vit: 0, def: 0, eva: 0, dex: 0, luck: 0 };
   let goldGain = 0;
   let xpGain = 0;
+  let levelsGained = 0;
   const loot: LootDrop[] = [];
 
   if (duel.won) {
-    xpGain = Math.round(monster.xp * (await xpMultiplier(client, playerId, uptimeSeconds)));
-
-    // Combat XP + level-ups → base-stat points per stat_per_level.
+    // Combat XP + level-ups → base-stat points per stat_per_level. XP scales with
+    // combat level (xpScale) and any active boost, mirroring transform XP.
     const combatSkill = [...cfg.skills.values()].find((s) => s.code === 'combat');
     if (combatSkill) {
       const skRes = await client.query(
@@ -51,8 +54,9 @@ export async function processCombat(
       );
       const sk = skRes.rows[0] as { level: number; xp: string } | undefined;
       if (sk) {
+        xpGain = Math.round(monster.xp * xpScale(sk.level, g.xp_slope) * xpMult);
         const gained = gainXp(sk.level, Number(sk.xp), xpGain, g.xp_curve);
-        const levelsGained = gained.level - sk.level;
+        levelsGained = gained.level - sk.level;
         await client.query(
           'UPDATE player_skills SET level = $3, xp = $4 WHERE player_id = $1 AND skill_id = $2',
           [playerId, combatSkill.id, gained.level, gained.xp],
@@ -129,5 +133,15 @@ export async function processCombat(
     gold: goldGain,
     xp: xpGain,
     loot,
+    player_hits: duel.player_hits,
+    player_misses: duel.player_misses,
+    monster_hits: duel.monster_hits,
+    monster_misses: duel.monster_misses,
+    player_hp: duel.player_hp,
+    player_max_hp: duel.player_max_hp,
+    monster_hp: duel.monster_hp,
+    monster_max_hp: duel.monster_max_hp,
+    boosted: xpMult > 1,
+    levels_gained: levelsGained,
   };
 }

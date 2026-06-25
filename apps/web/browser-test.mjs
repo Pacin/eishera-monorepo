@@ -43,31 +43,69 @@ try {
   });
   ck('socket connected (live dot on)', true);
 
-  // ── Actions panel: recipes + monsters render, selecting starts an activity ─
-  await page.click('nav.tabs >> text=Actions');
-  await page.waitForSelector('text=Gather & craft');
-  const recipeButtons = await page
-    .locator('section:has-text("Gather & craft") button.primary')
-    .count();
-  ck('recipe list renders (≥1 Start button)', recipeButtons >= 1, recipeButtons);
-  const monsterButtons = await page.locator('section:has-text("Battle") button.primary').count();
-  ck('monster list renders (≥1 Fight button)', monsterButtons >= 1, monsterButtons);
-  // Start the first recipe → its button flips to "Active" and the action ticker shows.
-  await page.locator('section:has-text("Gather & craft") button.primary').first().click();
-  await page.waitForSelector('section:has-text("Gather & craft") button:has-text("Active")', {
-    timeout: 10000,
+  // ── Gathering tab: idle shows options; starting one swaps to the detail ─────
+  await page.click('nav.tabs >> text=Gathering');
+  await page.waitForSelector('.col-mid button.primary:has-text("Gather")');
+  const gatherButtons = await page.locator('.col-mid button.primary:has-text("Gather")').count();
+  ck('gathering options render when idle (≥1 Gather button)', gatherButtons >= 1, gatherButtons);
+  // Start the first gather → options are replaced by the live detail + Action Tracker.
+  await page.locator('.col-mid button.primary:has-text("Gather")').first().click();
+  await page.waitForSelector('section:has-text("Action Tracker"):has-text("Total Actions")', {
+    timeout: 15000,
   });
-  ck('selecting a recipe marks it Active', true);
-  const current = await page.textContent('section:has-text("Current action")');
-  ck('current action reflects the selection', /Gathering\/crafting/.test(current), current);
+  ck('gather detail + Action Tracker render while active', true);
+  const gatherBtnsActive = await page.locator('.col-mid button.primary:has-text("Gather")').count();
+  ck('gathering options hidden while active', gatherBtnsActive === 0, gatherBtnsActive);
+  ck('no Current action section', (await page.locator('text=Current action').count()) === 0);
+  ck('no Stop button on detail', (await page.locator('.col-mid button:has-text("Stop")').count()) === 0);
+  // "Change" reveals the options again without stopping the active gather.
+  await page.locator('.col-mid button:has-text("Change")').first().click();
+  await page.waitForSelector('.col-mid button.primary:has-text("Gather")', { timeout: 5000 });
+  const reopened = await page.locator('.col-mid button.primary:has-text("Gather")').count();
+  ck('Change re-shows gathering options', reopened >= 1, reopened);
+  ck('a gather is still marked Active after Change', (await page.locator('.col-mid button:has-text("Active")').count()) >= 1);
 
-  // ── Character panel: stat cards + skill XP bars (xpToNext) ──────────────────
-  await page.click('nav.tabs >> text=Character');
-  await page.waitForSelector('text=Base stats');
-  const statCards = await page.locator('section:has-text("Base stats") .card').count();
-  ck('six base-stat cards render', statCards === 6, statCards);
+  // ── Crafting tab: recipes with inputs render ───────────────────────────────
+  await page.click('nav.tabs >> text=Crafting');
+  await page.waitForSelector('.col-mid button.primary:has-text("Craft")');
+  const craftButtons = await page.locator('.col-mid button.primary:has-text("Craft")').count();
+  ck('crafting recipes render (≥1 Craft button)', craftButtons >= 1, craftButtons);
+
+  // ── Alchemy tab: brew recipes render ───────────────────────────────────────
+  await page.click('nav.tabs >> text=Alchemy');
+  await page.waitForSelector('.col-mid button.primary:has-text("Brew")');
+  const brewButtons = await page.locator('.col-mid button.primary:has-text("Brew")').count();
+  ck('alchemy recipes render (≥1 Brew button)', brewButtons >= 1, brewButtons);
+
+  // ── Combat tab: monster targets render + battle detail after a tick ────────
+  await page.click('nav.tabs >> text=Combat');
+  await page.waitForSelector('.col-mid button.primary:has-text("Fight")');
+  const monsterButtons = await page.locator('.col-mid button.primary:has-text("Fight")').count();
+  ck('combat targets render (≥1 Fight button)', monsterButtons >= 1, monsterButtons);
+  // Start a fight → options swap to the battle report (rendered after a tick).
+  await page.locator('.col-mid button.primary:has-text("Fight")').first().click();
+  await page.waitForSelector('section:has-text("damage per hit")', { timeout: 15000 });
+  const report = await page.textContent('.col-mid');
+  ck('combat detail (battle report) renders', /damage per hit/.test(report), report?.slice(0, 80));
+  ck('combat detail shows Wins / Losses tracker', /Wins \/ Losses/.test(report), report?.slice(0, 80));
+  const fightBtnsActive = await page.locator('.col-mid button.primary:has-text("Fight")').count();
+  ck('combat targets hidden while fighting', fightBtnsActive === 0, fightBtnsActive);
+
+  // ── Profile tab: attribute chips + skill XP bars (xpToNext) ────────────────
+  await page.click('nav.tabs >> text=Profile');
+  await page.waitForSelector('section:has-text("Attributes") .stat-chip');
+  const statChips = await page
+    .locator('section:has-text("Attributes") .stat-chip')
+    .count();
+  ck('six attribute chips render in Profile', statChips === 6, statChips);
   const xpBars = await page.locator('section:has-text("Skills") .bar.xp').count();
   ck('skill XP bars render (shared xpToNext)', xpBars >= 1, xpBars);
+
+  // ── Inventory tab: items + equipment panels (empty for a fresh account) ─────
+  await page.click('nav.tabs >> text=Inventory');
+  await page.waitForSelector('section:has-text("Items")');
+  const invPanels = await page.locator('section:has-text("Items"), section:has-text("Equipment")').count();
+  ck('inventory Items + Equipment panels render', invPanels >= 2, invPanels);
 
   // ── Housing panel renders features ─────────────────────────────────────────
   await page.click('nav.tabs >> text=Housing');
@@ -105,8 +143,8 @@ try {
 
   // ── Chat: send a message, see it appear live in the log ────────────────────
   const marker = `browser-hi-${Date.now()}`;
-  await page.fill('section:has-text("Chat") input', marker);
-  await page.click('section:has-text("Chat") button:has-text("Send")');
+  await page.fill('section.chat input', marker);
+  await page.click('section.chat button:has-text("Send")');
   await page.waitForSelector(`.chat-log:has-text("${marker}")`, { timeout: 10000 });
   ck('chat message sent and rendered live', true);
 

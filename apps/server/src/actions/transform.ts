@@ -11,14 +11,29 @@
 // the gather/rare bonus terms are the skill-level scaling only.
 
 import type { PoolClient } from 'pg';
-import { yieldMult, pRare, gainXp } from '@eishera/shared';
-import type { Recipe } from '@eishera/shared';
+import { yieldMult, pRare, gainXp, xpScale } from '@eishera/shared';
+import type { Recipe, LootDrop } from '@eishera/shared';
 import type { ConfigSnapshot } from '../config/snapshot.js';
 import { rollRarity, rollStats, scaleQty } from './rolls.js';
 import { computeProductionModifiers } from './modifiers.js';
 import { xpMultiplier } from '../effects/boosts.js';
 
-export type TransformResult = 'processed' | 'stalled';
+/** Per-action result for the active transform player (drives the detail view). */
+export interface TransformOutcome {
+  status: 'processed' | 'stalled';
+  xp: number;
+  outputs: LootDrop[];
+  boosted: boolean;
+  levelsGained: number;
+}
+
+const STALLED: TransformOutcome = {
+  status: 'stalled',
+  xp: 0,
+  outputs: [],
+  boosted: false,
+  levelsGained: 0,
+};
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -28,9 +43,9 @@ export async function processTransform(
   recipe: Recipe,
   cfg: ConfigSnapshot,
   uptimeSeconds: number,
-): Promise<TransformResult> {
+): Promise<TransformOutcome> {
   const activity = cfg.activities.get(recipe.activity_id);
-  if (!activity) return 'stalled';
+  if (!activity) return STALLED;
   const skillId = activity.skill_id;
 
   // Skill level/xp for this recipe's skill.
@@ -39,11 +54,11 @@ export async function processTransform(
     [playerId, skillId],
   );
   const sk = skRes.rows[0] as { level: number; xp: string } | undefined;
-  if (!sk) return 'stalled';
+  if (!sk) return STALLED;
   const level = sk.level;
   const xp = Number(sk.xp);
 
-  if (level < recipe.req_level) return 'stalled';
+  if (level < recipe.req_level) return STALLED;
 
   // Inputs: verify all are available before consuming any (stall otherwise).
   if (recipe.inputs.length > 0) {
@@ -57,7 +72,7 @@ export async function processTransform(
     const have = new Map((invRes.rows as any[]).map((r) => [r.item_id as number, Number(r.qty)]));
     for (const inp of recipe.inputs) {
       const id = cfg.itemsByCode.get(inp.item)?.id;
-      if (id == null || (have.get(id) ?? 0) < inp.qty) return 'stalled';
+      if (id == null || (have.get(id) ?? 0) < inp.qty) return STALLED;
     }
     for (const inp of recipe.inputs) {
       const id = cfg.itemsByCode.get(inp.item)!.id;
@@ -73,8 +88,9 @@ export async function processTransform(
   // Effective craft_quality = skill level scaled by workshop/effect bonuses.
   const craftQuality = level * (1 + mods.craftQuality);
 
-  // Outputs.
+  // Outputs (also collected for the per-action detail view).
   const g = cfg.gameConfig;
+  const outputs: LootDrop[] = [];
   for (const out of recipe.outputs) {
     const item = cfg.itemsByCode.get(out.item);
     if (!item) continue;
@@ -111,12 +127,13 @@ export async function processTransform(
         [playerId, item.id, qty],
       );
     }
+    outputs.push({ item: out.item, qty });
   }
 
-  // XP + level-ups for this skill (xp boosts multiply the gain).
-  const xpAmount = Math.round(
-    recipe.base_xp * (await xpMultiplier(client, playerId, uptimeSeconds)),
-  );
+  // XP + level-ups for this skill. Scales with the skill level (xpScale) and any
+  // active XP boost, mirroring how output scales with yieldMult.
+  const xpMult = await xpMultiplier(client, playerId, uptimeSeconds);
+  const xpAmount = Math.round(recipe.base_xp * xpScale(level, g.xp_slope) * xpMult);
   const gained = gainXp(level, xp, xpAmount, g.xp_curve);
   await client.query(
     'UPDATE player_skills SET level = $3, xp = $4 WHERE player_id = $1 AND skill_id = $2',
@@ -128,5 +145,11 @@ export async function processTransform(
     playerId,
   ]);
 
-  return 'processed';
+  return {
+    status: 'processed',
+    xp: xpAmount,
+    outputs,
+    boosted: xpMult > 1,
+    levelsGained: gained.level - level,
+  };
 }

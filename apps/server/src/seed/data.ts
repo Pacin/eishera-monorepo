@@ -29,6 +29,7 @@ export const gameConfig: GameConfigSeed[] = [
     description: 'flat XP per action (recipe base_xp may override)',
   },
   { key: 'yield_slope', value: 0.02, description: 'yieldMult(L) = 1 + L * slope' },
+  { key: 'xp_slope', value: 0.02, description: 'xpScale(L) = 1 + L * slope (per-action XP)' },
   {
     key: 'rare',
     value: { base: 0.005, step: 0.0005, cap: 0.1 },
@@ -348,13 +349,15 @@ export const recipes: Recipe[] = [
 
 export const monsters: Monster[] = [
   {
+    // Tier-1 starter: tuned so a fresh level-1 player (base stats, no equipment)
+    // reliably wins (~99% in simulation) — the intended "first kill" monster.
     id: 1,
     tier: 1,
     name: 'Goblin',
-    hp: 100,
-    attack: 8,
-    accuracy: 70,
-    evasion: 10,
+    hp: 25,
+    attack: 4,
+    accuracy: 45,
+    evasion: 4,
     xp: 12,
     gold_min: 5,
     gold_max: 10,

@@ -16,6 +16,12 @@ export function yieldMult(level: number, slope: number): number {
   return 1 + level * slope;
 }
 
+/** XP-gain multiplier from skill level (e.g. 2× at L50 with slope 0.02). Mirrors
+ *  yieldMult but tuned separately via xp_slope, so XP and output can scale apart. */
+export function xpScale(level: number, slope: number): number {
+  return 1 + level * slope;
+}
+
 /** Probability that an activity yields a rare output at all — deliberately scarce. */
 export function pRare(level: number, rare: RareCurve): number {
   return Math.min(rare.cap, rare.base + level * rare.step);

@@ -17,9 +17,10 @@ import { completeUpgradeJobs } from '../housing/service.js';
 import { processBossTick } from '../boss/service.js';
 import { pushToPlayer, isPlayerOnline, onlinePlayerIds } from '../ws/registry.js';
 import { getPlayerSummaries } from '../players/service.js';
+import { getInventories } from '../inventory/service.js';
 import { getBoss } from '../boss/service.js';
 import { getHousing } from '../housing/service.js';
-import type { BattleResult } from '@eishera/shared';
+import type { BattleResult, GatherResult } from '@eishera/shared';
 
 export interface WorldState {
   tick_number: number;
@@ -43,6 +44,8 @@ export interface TickResult {
   /** Boss participant IDs (→ boss:update push while active). */
   bossParticipants: number[];
   battles: { playerId: number; result: BattleResult }[];
+  /** Per-action gather/craft summaries for active transform players (→ gather push). */
+  gathers: { playerId: number; result: GatherResult }[];
 }
 
 /** Create the singleton world_state row if it doesn't exist yet. */
@@ -102,6 +105,7 @@ export async function runTick(): Promise<TickResult> {
     //    a transform recipe (Phase 4) or a battle (Phase 5). Exactly one target
     //    is set per player (DB CHECK). All writes are part of this one tick txn.
     const battles: { playerId: number; result: BattleResult }[] = [];
+    const gathers: { playerId: number; result: GatherResult }[] = [];
     const activePlayerIds: number[] = [];
     const active = await client.query(
       `SELECT id, active_recipe_id, active_monster_id FROM players
@@ -118,7 +122,24 @@ export async function runTick(): Promise<TickResult> {
       activePlayerIds.push(playerId);
       if (r.active_recipe_id !== null) {
         const recipe = snapshot.recipes.get(r.active_recipe_id);
-        if (recipe) await processTransform(client, playerId, recipe, snapshot, newUptime);
+        if (recipe) {
+          const outcome = await processTransform(client, playerId, recipe, snapshot, newUptime);
+          const activity = snapshot.activities.get(recipe.activity_id);
+          const skill = activity ? snapshot.skills.get(activity.skill_id) : undefined;
+          gathers.push({
+            playerId,
+            result: {
+              recipe: recipe.name,
+              activity: activity?.code ?? '',
+              skill: skill?.code ?? '',
+              xp: outcome.xp,
+              outputs: outcome.outputs,
+              stalled: outcome.status === 'stalled',
+              boosted: outcome.boosted,
+              levels_gained: outcome.levelsGained,
+            },
+          });
+        }
       } else if (r.active_monster_id !== null) {
         const monster = snapshot.monsters.get(r.active_monster_id);
         if (monster) {
@@ -156,6 +177,7 @@ export async function runTick(): Promise<TickResult> {
       bossActive: boss.active,
       bossParticipants: boss.participants,
       battles,
+      gathers,
     };
   });
 }
@@ -168,6 +190,7 @@ export async function runTick(): Promise<TickResult> {
  */
 async function pushTickUpdates(r: TickResult): Promise<void> {
   for (const b of r.battles) pushToPlayer(b.playerId, 'battle', b.result);
+  for (const gth of r.gathers) pushToPlayer(gth.playerId, 'gather', gth.result);
   const cfg = getConfig();
 
   // Per-tick player summary to each online active player (gold/xp/actions moved).
@@ -175,8 +198,13 @@ async function pushTickUpdates(r: TickResult): Promise<void> {
   const summaryIds = new Set(r.activePlayerIds.filter(isPlayerOnline));
   if (r.bossExpired) for (const p of r.bossParticipants) if (isPlayerOnline(p)) summaryIds.add(p);
   if (summaryIds.size > 0) {
-    const summaries = await getPlayerSummaries([...summaryIds]);
+    const ids = [...summaryIds];
+    const summaries = await getPlayerSummaries(ids);
     for (const [playerId, summary] of summaries) pushToPlayer(playerId, 'player:update', summary);
+    // Crafting outputs and combat loot land in inventory each action → push the
+    // fresh holdings to the same active players (no client GET).
+    const inventories = await getInventories(ids, cfg);
+    for (const [playerId, inventory] of inventories) pushToPlayer(playerId, 'inventory:update', inventory);
   }
 
   // Housing changes only on completion → push the fresh view (no client GET).

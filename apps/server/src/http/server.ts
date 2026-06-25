@@ -18,6 +18,7 @@ import {
   createPlayer,
   verifyCredentials,
   getPlayerSummary,
+  getPlayerSummaries,
   UsernameTakenError,
 } from '../players/service.js';
 import {
@@ -40,12 +41,15 @@ import {
   playerRoom,
   chatRoom,
   broadcastToChannel,
+  pushToPlayer,
 } from '../ws/registry.js';
 import { sendMessage, recentHistory, allowedChannels } from '../chat/service.js';
+import { transferGold, sendWhisper, whisperHistory } from '../social/service.js';
 import { getConfig } from '../config/store.js';
 import { buildCatalog } from '../config/catalog.js';
 import { selectRecipe, selectMonster, clearActivity, refreshActions } from '../actions/service.js';
 import { equipInstance, unequipSlot, getEquipment } from '../equipment/service.js';
+import { getInventory } from '../inventory/service.js';
 import { effectiveStatsForPlayer } from '../combat/stats.js';
 import { consumePotion } from '../effects/service.js';
 import { startUpgrade, cancelUpgrade, getHousing } from '../housing/service.js';
@@ -55,6 +59,9 @@ import { salvageInstance } from '../market/salvage.js';
 import { joinBoss, getBoss } from '../boss/service.js';
 import { buyBoost } from '../effects/boosts.js';
 import type { AuthResponse, AuthTokenPayload, MarketSide } from '@eishera/shared';
+
+// How many recent whispers (sent + received) to replay to a player on connect.
+const WHISPER_HISTORY_LIMIT = 50;
 
 const credentialsSchema = {
   body: {
@@ -642,17 +649,23 @@ export async function buildServer(): Promise<FastifyInstance> {
     for (const channel of channels) {
       socket.emit('chat:history', { channel, messages: recentHistory(channel) });
     }
+    // Private-message history (SPEC §11): durable, so it survives reconnects and
+    // an offline recipient receives whatever arrived while they were away.
+    void whisperHistory(playerId, WHISPER_HISTORY_LIMIT).then((messages) => {
+      socket.emit('whisper:history', { messages });
+    });
 
     // Bootstrap (SPEC §13): deliver the player summary, content catalog, and
     // housing/boss state over the socket so the SPA needs no HTTP GETs to load.
     void (async () => {
       const cfg = getConfig();
-      const [me, housing, boss] = await Promise.all([
+      const [me, housing, boss, inventory] = await Promise.all([
         getPlayerSummary(playerId),
         getHousing(playerId, cfg),
         getBoss(playerId),
+        getInventory(playerId, cfg),
       ]);
-      socket.emit('sync', { me, catalog: buildCatalog(), housing, boss });
+      socket.emit('sync', { me, catalog: buildCatalog(), housing, boss, inventory });
     })();
 
     socket.on('ping', (data: { t?: number } | undefined) => {
@@ -671,6 +684,38 @@ export async function buildServer(): Promise<FastifyInstance> {
         } else {
           broadcastToChannel(result.channel, 'chat:message', result);
         }
+      });
+    });
+
+    // /wire — atomic gold transfer. On success, push the receipt + a fresh
+    // player summary (live gold) to BOTH parties; errors go to the sender only.
+    socket.on('wire:send', (data: { to?: unknown; amount?: unknown } | undefined) => {
+      const to = typeof data?.to === 'string' ? data.to : '';
+      const amount = Number(data?.amount);
+      void transferGold(playerId, username, to, amount).then(async (result) => {
+        if ('error' in result) {
+          socket.emit('wire:error', { error: result.error });
+          return;
+        }
+        pushToPlayer(result.fromId, 'wire', result.receipt);
+        pushToPlayer(result.toId, 'wire', result.receipt);
+        const summaries = await getPlayerSummaries([result.fromId, result.toId]);
+        for (const [id, summary] of summaries) pushToPlayer(id, 'player:update', summary);
+      });
+    });
+
+    // /whisper — private message. Delivered live to the recipient and echoed
+    // back to the sender (both via their player rooms); errors to sender only.
+    socket.on('whisper:send', (data: { to?: unknown; body?: unknown } | undefined) => {
+      const to = typeof data?.to === 'string' ? data.to : '';
+      const body = typeof data?.body === 'string' ? data.body : '';
+      void sendWhisper(playerId, username, to, body, Date.now()).then((result) => {
+        if ('error' in result) {
+          socket.emit('whisper:error', { error: result.error });
+          return;
+        }
+        pushToPlayer(result.toId, 'whisper', result.message);
+        pushToPlayer(result.fromId, 'whisper', result.message);
       });
     });
   });

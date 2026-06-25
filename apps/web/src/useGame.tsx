@@ -22,11 +22,27 @@ import type {
   GameCatalog,
   HousingView,
   BossView,
+  InventoryView,
   BattleResult,
+  GatherResult,
   ChatMessage,
+  WhisperMessage,
+  WireReceipt,
 } from '@eishera/shared';
 import { postJson, refreshSession } from './api.js';
 import { connectSocket, disconnectSocket } from './socket.js';
+import {
+  type CombatTracker,
+  type GatherTracker,
+  emptyCombat,
+  emptyGather,
+  addBattle,
+  addGather,
+  loadCombat,
+  loadGather,
+  saveCombat,
+  saveGather,
+} from './tracker.js';
 
 type Status = 'loading' | 'anon' | 'authed';
 
@@ -43,9 +59,20 @@ interface GameState {
   catalog: GameCatalog | null;
   housing: HousingView | null;
   boss: BossView | null;
+  inventory: InventoryView | null;
   battles: BattleResult[];
+  /** Latest-first per-action gather/craft summaries (drives the detail view). */
+  gathers: GatherResult[];
+  /** Persistent local activity tallies (since last reset). */
+  combatTracker: CombatTracker;
+  gatherTracker: GatherTracker;
+  resetCombatTracker: () => void;
+  resetGatherTracker: () => void;
   chat: Record<string, ChatMessage[]>;
   chatError: string | null;
+  whispers: WhisperMessage[];
+  /** Transient feedback for /wire & /whisper (receipts, errors). Auto-cleared. */
+  socialNotice: { kind: 'info' | 'error'; text: string } | null;
   lastFill: MarketFill | null;
   connected: boolean;
   /** performance.now() of the last player:update (a processed action) — drives the
@@ -62,12 +89,48 @@ interface GameState {
   cancelUpgrade: () => Promise<void>;
   joinBoss: () => Promise<void>;
   sendChat: (channel: string, body: string) => void;
+  wire: (to: string, amount: number) => void;
+  whisper: (to: string, body: string) => void;
 }
 
 const Ctx = createContext<GameState | null>(null);
 
 const MAX_BATTLES = 8;
+const MAX_GATHERS = 8;
 const MAX_CHAT = 80;
+const MAX_WHISPERS = 80;
+
+function wireErrorText(error: string): string {
+  switch (error) {
+    case 'unknown_user':
+      return 'No such player to wire to.';
+    case 'self':
+      return "You can't wire gold to yourself.";
+    case 'bad_amount':
+      return 'Wire amount must be a whole number above zero.';
+    case 'insufficient_gold':
+      return 'Not enough gold for that wire.';
+    default:
+      return 'Wire failed.';
+  }
+}
+
+function whisperErrorText(error: string): string {
+  switch (error) {
+    case 'unknown_user':
+      return 'No such player to whisper.';
+    case 'self':
+      return "You can't whisper yourself.";
+    case 'empty_message':
+      return 'Whisper needs a message.';
+    case 'too_long':
+      return 'Whisper is too long.';
+    case 'rate_limited':
+      return 'Slow down — too many whispers.';
+    default:
+      return 'Whisper failed.';
+  }
+}
 
 export function GameProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>('loading');
@@ -75,12 +138,21 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [catalog, setCatalog] = useState<GameCatalog | null>(null);
   const [housing, setHousing] = useState<HousingView | null>(null);
   const [boss, setBoss] = useState<BossView | null>(null);
+  const [inventory, setInventory] = useState<InventoryView | null>(null);
   const [battles, setBattles] = useState<BattleResult[]>([]);
+  const [gathers, setGathers] = useState<GatherResult[]>([]);
+  const [combatTracker, setCombatTracker] = useState<CombatTracker>(emptyCombat);
+  const [gatherTracker, setGatherTracker] = useState<GatherTracker>(emptyGather);
   const [chat, setChat] = useState<Record<string, ChatMessage[]>>({});
   const [chatError, setChatError] = useState<string | null>(null);
+  const [whispers, setWhispers] = useState<WhisperMessage[]>([]);
+  const [socialNotice, setSocialNotice] = useState<GameState['socialNotice']>(null);
   const [lastFill, setLastFill] = useState<MarketFill | null>(null);
   const [tickAt, setTickAt] = useState<number | null>(null);
   const [connected, setConnected] = useState(false);
+  // Latest username, read by the wire-receipt handler to phrase direction without
+  // re-subscribing the socket listener on every player:update.
+  const meNameRef = useRef<string | null>(null);
   const socketRef = useRef<Socket | null>(null);
   // Lets the connect_error handler re-invoke setup() (a fresh socket) after a
   // token refresh, without a self-referential useCallback dependency.
@@ -125,12 +197,19 @@ export function GameProvider({ children }: { children: ReactNode }) {
     // Bootstrap: the one payload that replaces all the load-time GETs.
     socket.on(
       'sync',
-      (d: { me: PlayerSummary; catalog: GameCatalog; housing: HousingView; boss: BossView }) => {
+      (d: {
+        me: PlayerSummary;
+        catalog: GameCatalog;
+        housing: HousingView;
+        boss: BossView;
+        inventory: InventoryView;
+      }) => {
         refreshTriedRef.current = false; // a later expiry may refresh again
         setMe(d.me);
         setCatalog(d.catalog);
         setHousing(d.housing);
         setBoss(d.boss);
+        setInventory(d.inventory);
         setStatus('authed');
       },
     );
@@ -142,9 +221,15 @@ export function GameProvider({ children }: { children: ReactNode }) {
     });
     socket.on('battle', (result: BattleResult) => {
       setBattles((prev) => [result, ...prev].slice(0, MAX_BATTLES));
+      setCombatTracker((t) => addBattle(t, result, Date.now()));
+    });
+    socket.on('gather', (result: GatherResult) => {
+      setGathers((prev) => [result, ...prev].slice(0, MAX_GATHERS));
+      setGatherTracker((t) => addGather(t, result, Date.now()));
     });
     socket.on('market:fill', (fill: MarketFill) => setLastFill(fill));
     socket.on('housing:update', (view: HousingView) => setHousing(view));
+    socket.on('inventory:update', (view: InventoryView) => setInventory(view));
     socket.on('boss:update', (view: BossView) => setBoss(view));
     socket.on('chat:history', (p: { channel: string; messages: ChatMessage[] }) => {
       setChat((prev) => ({ ...prev, [p.channel]: p.messages }));
@@ -156,7 +241,53 @@ export function GameProvider({ children }: { children: ReactNode }) {
       }));
     });
     socket.on('chat:error', (e: { error: string }) => setChatError(e.error));
+
+    // Whisper history replayed on connect (durable) — authoritative, so replace.
+    socket.on('whisper:history', (p: { messages: WhisperMessage[] }) => {
+      setWhispers(p.messages.slice(-MAX_WHISPERS));
+    });
+    // /whisper delivery (both sent-echo and received) → the client 'whisper' lane.
+    socket.on('whisper', (m: WhisperMessage) => {
+      setWhispers((prev) => [...prev, m].slice(-MAX_WHISPERS));
+    });
+    // /wire receipt → a transient notice; gold itself refreshes via player:update.
+    socket.on('wire', (r: WireReceipt) => {
+      const mine = meNameRef.current;
+      setSocialNotice({
+        kind: 'info',
+        text:
+          r.from === mine
+            ? `Wired ${r.amount.toLocaleString()} gold to ${r.to}.`
+            : `Received ${r.amount.toLocaleString()} gold from ${r.from}.`,
+      });
+    });
+    socket.on('wire:error', (e: { error: string }) =>
+      setSocialNotice({ kind: 'error', text: wireErrorText(e.error) }),
+    );
+    socket.on('whisper:error', (e: { error: string }) =>
+      setSocialNotice({ kind: 'error', text: whisperErrorText(e.error) }),
+    );
   }, []);
+
+  // Keep the username ref current for the wire-receipt direction check.
+  useEffect(() => {
+    meNameRef.current = me?.username ?? null;
+  }, [me?.username]);
+
+  // Load this player's persisted Action Tracker totals when they sign in.
+  useEffect(() => {
+    if (me?.id == null) return;
+    setCombatTracker(loadCombat(me.id));
+    setGatherTracker(loadGather(me.id));
+  }, [me?.id]);
+
+  // Persist tracker totals as they change (only while signed in).
+  useEffect(() => {
+    if (me?.id != null) saveCombat(me.id, combatTracker);
+  }, [me?.id, combatTracker]);
+  useEffect(() => {
+    if (me?.id != null) saveGather(me.id, gatherTracker);
+  }, [me?.id, gatherTracker]);
 
   useEffect(() => {
     setupRef.current = setupSocket;
@@ -193,8 +324,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setCatalog(null);
     setHousing(null);
     setBoss(null);
+    setInventory(null);
+    setGathers([]);
+    setBattles([]);
+    // In-memory tallies clear; the next sign-in reloads that player's saved totals.
+    setCombatTracker(emptyCombat());
+    setGatherTracker(emptyGather());
     setStatus('anon');
   }, []);
+
+  const resetCombatTracker = useCallback(() => setCombatTracker(emptyCombat()), []);
+  const resetGatherTracker = useCallback(() => setGatherTracker(emptyGather()), []);
 
   // Mutations — POST, then apply the response (the server returns the new state).
   const selectRecipe = useCallback(async (recipeId: number | null) => {
@@ -245,6 +385,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setChatError(null);
     socketRef.current?.emit('chat:send', { channel, body });
   }, []);
+  const wire = useCallback((to: string, amount: number) => {
+    setSocialNotice(null);
+    socketRef.current?.emit('wire:send', { to, amount });
+  }, []);
+  const whisper = useCallback((to: string, body: string) => {
+    setSocialNotice(null);
+    socketRef.current?.emit('whisper:send', { to, body });
+  }, []);
 
   const value = useMemo<GameState>(
     () => ({
@@ -253,9 +401,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
       catalog,
       housing,
       boss,
+      inventory,
       battles,
+      gathers,
+      combatTracker,
+      gatherTracker,
+      resetCombatTracker,
+      resetGatherTracker,
       chat,
       chatError,
+      whispers,
+      socialNotice,
       lastFill,
       connected,
       tickAt,
@@ -269,6 +425,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       cancelUpgrade,
       joinBoss,
       sendChat,
+      wire,
+      whisper,
     }),
     [
       status,
@@ -276,9 +434,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
       catalog,
       housing,
       boss,
+      inventory,
       battles,
+      gathers,
+      combatTracker,
+      gatherTracker,
+      resetCombatTracker,
+      resetGatherTracker,
       chat,
       chatError,
+      whispers,
+      socialNotice,
       lastFill,
       connected,
       tickAt,
@@ -292,6 +458,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
       cancelUpgrade,
       joinBoss,
       sendChat,
+      wire,
+      whisper,
     ],
   );
 

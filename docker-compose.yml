@@ -35,6 +35,10 @@ services:
       DATABASE_URL: postgres://eishera:eishera@db:5432/eishera
       PORT: '4000'
       JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
+      # The image runs NODE_ENV=production, which would default Secure (HTTPS-only)
+      # auth cookies on — those are never sent over the plain-HTTP dev web client
+      # (localhost:5173), so login would silently fail. Disable for local dev.
+      COOKIE_SECURE: 'false'
     ports:
       - '4000:4000'
 

@@ -228,6 +228,31 @@ export interface PlayerSummary {
   active_monster_id: number | null;
 }
 
+// ── Inventory DTOs (SPEC §3.2) ───────────────────────────────────────────────
+
+/** A stackable holding (materials, potions) from the `inventory` table. */
+export interface InventoryStack {
+  /** Item code, resolved against the catalog for display. */
+  item: string;
+  qty: number;
+}
+
+/** A unique equipment instance the player owns; `equipped_slot` is set when worn. */
+export interface InventoryInstance {
+  instance_id: number;
+  /** Item code, resolved against the catalog for display. */
+  item: string;
+  rarity: number;
+  rolls: Record<string, number>;
+  equipped_slot: EquipSlot | null;
+}
+
+/** Everything the player holds: stackables + unique gear (SPEC §3.2). */
+export interface InventoryView {
+  stacks: InventoryStack[];
+  equipment: InventoryInstance[];
+}
+
 /** JWT claims carried in the auth token. */
 export interface AuthTokenPayload {
   playerId: number;
@@ -314,6 +339,27 @@ export interface ChatMessage {
   created_at: string;
 }
 
+/** A private message (`/whisper`). Delivered live to both parties; the `from`/`to`
+ *  usernames let the client render direction without extra lookups. */
+export interface WhisperMessage {
+  id: number;
+  from: string;
+  to: string;
+  body: string;
+  /** ISO timestamp. */
+  created_at: string;
+}
+
+/** Confirmation of a completed `/wire` gold transfer, pushed to both parties. */
+export interface WireReceipt {
+  from: string;
+  to: string;
+  amount: number;
+}
+
+export type WireError = 'unknown_user' | 'self' | 'bad_amount' | 'insufficient_gold';
+export type WhisperError = 'unknown_user' | 'self' | 'empty_message' | 'too_long' | 'rate_limited';
+
 /** Response body for register/login. The access + refresh tokens are delivered
  *  as httpOnly cookies (not in the body), so only the player is returned. */
 export interface AuthResponse {
@@ -357,7 +403,8 @@ export interface HousingView {
 }
 
 /** Per-action battle summary (SPEC §7.2). The round-by-round log is NOT persisted;
- *  this is what the client renders and receives over the websocket. */
+ *  this is what the client renders and receives over the websocket. Hit/miss
+ *  counts and HP pools drive the combat detail view. */
 export interface BattleResult {
   monster: string;
   rounds: number;
@@ -368,4 +415,39 @@ export interface BattleResult {
   gold: number;
   xp: number;
   loot: LootDrop[];
+  /** How many of your swings landed / whiffed this action. */
+  player_hits: number;
+  player_misses: number;
+  /** How many of the monster's swings landed / whiffed (whiff = you dodged). */
+  monster_hits: number;
+  monster_misses: number;
+  /** Final HP pools for the duel (remaining out of max). */
+  player_hp: number;
+  player_max_hp: number;
+  monster_hp: number;
+  monster_max_hp: number;
+  /** True when an XP boost/effect was active for this action. */
+  boosted: boolean;
+  /** Combat levels gained from this action (0 if none). */
+  levels_gained: number;
+}
+
+/** Per-action gather/craft summary, pushed over the websocket each tick for an
+ *  active transform player. Drives the gathering/crafting detail view. */
+export interface GatherResult {
+  /** Recipe display name, e.g. "Mine ore". */
+  recipe: string;
+  /** Activity code (mine/quarry/hunt/craft/brew) — picks the flavor line. */
+  activity: string;
+  /** Skill code (mining, crafting, …) — labels the XP gain. */
+  skill: string;
+  xp: number;
+  /** Items produced this action (empty when stalled). */
+  outputs: LootDrop[];
+  /** True when inputs were missing and the action could not run. */
+  stalled: boolean;
+  /** True when an XP boost/effect was active for this action. */
+  boosted: boolean;
+  /** Skill levels gained from this action (0 if none). */
+  levels_gained: number;
 }

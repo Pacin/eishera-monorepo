@@ -13,6 +13,7 @@ import { withTransaction } from '../db/pool.js';
 import { query } from '../db/pool.js';
 import { pushToPlayer, isPlayerOnline } from '../ws/registry.js';
 import { getPlayerSummaries } from '../players/service.js';
+import { getInventories } from '../inventory/service.js';
 import { getConfig } from '../config/store.js';
 import type { OrderResult, Fill, OrderBook, BookLevel, MarketSide } from '@eishera/shared';
 
@@ -209,6 +210,8 @@ export async function placeOrder(
       if (affected.length > 0) {
         const summaries = await getPlayerSummaries(affected);
         for (const [id, summary] of summaries) pushToPlayer(id, 'player:update', summary);
+        const inventories = await getInventories(affected, getConfig());
+        for (const [id, inventory] of inventories) pushToPlayer(id, 'inventory:update', inventory);
       }
     }
     return outcome.result;

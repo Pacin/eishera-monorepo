@@ -1,0 +1,5 @@
+# Shell scripts must stay LF — they run in Linux containers (Alpine sh), where
+# CRLF endings break parsing (e.g. `set -e\r` → "illegal option"). Without this,
+# a Windows checkout rewrites them to CRLF.
+*.sh text eol=lf
+docker/server-entrypoint.sh text eol=lf

@@ -40,16 +40,19 @@ export function buildCatalog(): GameCatalog {
           : { item: o.item, qty: o.qty, chance: o.chance },
       ),
     })),
-    monsters: [...cfg.monsters.values()].map((m) => ({
-      id: m.id,
-      name: m.name,
-      tier: m.tier,
-      hp: m.hp,
-      attack: m.attack,
-      xp: m.xp,
-      gold_min: m.gold_min,
-      gold_max: m.gold_max,
-    })),
+    // Ordered by tier so the client lists the easiest (the tier-1 starter) first.
+    monsters: [...cfg.monsters.values()]
+      .sort((a, b) => a.tier - b.tier || a.id - b.id)
+      .map((m) => ({
+        id: m.id,
+        name: m.name,
+        tier: m.tier,
+        hp: m.hp,
+        attack: m.attack,
+        xp: m.xp,
+        gold_min: m.gold_min,
+        gold_max: m.gold_max,
+      })),
     items: [...cfg.items.values()].map((i) => ({
       id: i.id,
       code: i.code,
